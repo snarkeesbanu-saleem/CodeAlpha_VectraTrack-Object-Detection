@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { TrackerConfig, Track, SystemEvent } from './types';
 import { SORTTracker } from './utils/tracker';
 import CameraTracker from './components/CameraTracker';
+import ImageAnalyzer from './components/ImageAnalyzer';
+import FieldBotChat from './components/FieldBotChat';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -740,16 +742,22 @@ export default function App() {
         {activeTab === 'video' && (
           <div className="agri-card p-6 text-center space-y-4">
             <Video className="w-12 h-12 text-emerald-400 mx-auto pulse-green" />
-            <h3 className="text-xl font-bold text-white">Field Video Player</h3>
+            <h3 className="text-xl font-bold text-white">Field Drone Video Processing</h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Select or upload recorded field drone footage to process object tracking offline.
+              Process pre-recorded drone footage or live camera stream in real-time.
             </p>
-            <div className="flex justify-center gap-3">
-              <button onClick={() => { setInputMode('simulator'); setActiveTab('live'); }} className="px-4 py-2 bg-emerald-600 text-slate-950 font-bold text-xs rounded-lg">
-                Run Sample Field Video 1 (Broccoli)
+            <div className="flex flex-wrap justify-center gap-3">
+              <button
+                onClick={() => { setInputMode('simulator'); setActiveTab('live'); }}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl shadow-[0_0_15px_rgba(34,197,94,0.4)] transition"
+              >
+                🎮 Run Virtual Field Simulator (Broccoli & Pests)
               </button>
-              <button onClick={() => { setInputMode('simulator'); setActiveTab('live'); }} className="px-4 py-2 bg-emerald-950 border border-emerald-800 text-emerald-300 text-xs rounded-lg">
-                Run Sample Field Video 2 (Apple Orchard)
+              <button
+                onClick={() => { setInputMode('webcam'); setActiveTab('live'); }}
+                className="px-5 py-2.5 bg-emerald-950 border border-emerald-800 hover:bg-emerald-900/60 text-emerald-300 font-semibold text-xs rounded-xl transition"
+              >
+                📹 Connect Live Field Camera
               </button>
             </div>
           </div>
@@ -757,16 +765,7 @@ export default function App() {
 
         {/* TAB 3: IMAGE ANALYSIS */}
         {activeTab === 'image' && (
-          <div className="agri-card p-6 text-center space-y-4">
-            <ImageIcon className="w-12 h-12 text-emerald-400 mx-auto pulse-green" />
-            <h3 className="text-xl font-bold text-white">Static Crop & Pest Image Analysis</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Drop field images here for instant multi-class object detection and bounding box tagging.
-            </p>
-            <button onClick={() => setActiveTab('live')} className="px-4 py-2 bg-emerald-600 text-slate-950 font-bold text-xs rounded-lg">
-              Analyze Sample Crop Image
-            </button>
-          </div>
+          <ImageAnalyzer confidenceThreshold={config.confidenceThreshold} />
         )}
 
         {/* TAB 4: DASHBOARD (SESSION SUMMARY + PIPELINE ARCHITECTURE) */}
@@ -867,19 +866,7 @@ export default function App() {
 
         {/* TAB 5: FIELDBOT */}
         {activeTab === 'bot' && (
-          <div className="agri-card p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <Bot className="w-8 h-8 text-emerald-400 pulse-green" />
-              <div>
-                <h3 className="text-lg font-bold text-white">FieldBot — Agricultural AI Assistant</h3>
-                <p className="text-xs text-slate-400">Ask field management questions or view automated crop protection strategies.</p>
-              </div>
-            </div>
-            <div className="bg-[#06110a] p-4 rounded-xl border border-emerald-900/40 text-xs font-mono-tech space-y-2">
-              <p className="text-emerald-400">🤖 FieldBot: Current field status is evaluating {cropCount} crops and {pestCount} pests.</p>
-              <p className="text-slate-300">💡 Recommended action: {botAdvice.advice}</p>
-            </div>
-          </div>
+          <FieldBotChat cropCount={cropCount} pestCount={pestCount} healthScore={healthScore} />
         )}
 
         {/* TAB 6: REPORT */}
