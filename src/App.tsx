@@ -168,12 +168,12 @@ export default function App() {
   // Derive counts
   const cropTracks = useMemo(() => {
     const cropsSet = new Set(['apple', 'orange', 'broccoli', 'carrot', 'potted plant']);
-    return tracks.filter(t => cropsSet.has(t.class.toLowerCase()));
+    return tracks.filter(t => t && t.class && cropsSet.has(t.class.toLowerCase()));
   }, [tracks]);
 
   const pestTracks = useMemo(() => {
     const pestsSet = new Set(['bird', 'mouse']);
-    return tracks.filter(t => pestsSet.has(t.class.toLowerCase()));
+    return tracks.filter(t => t && t.class && pestsSet.has(t.class.toLowerCase()));
   }, [tracks]);
 
   const cropCount = displayMode === 'pest' ? 0 : (cropTracks.length || (inputMode === 'simulator' ? 9 : 0));
@@ -194,7 +194,7 @@ export default function App() {
 
     if (pestCount >= pestAlertThreshold) {
       setAlertsRaised(prev => prev + 1);
-      if (Notification.permission === 'granted') {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         new Notification('🚨 Pest Alert Triggered!', {
           body: `High pest density detected: ${pestCount} pests in frame! Threshold is ${pestAlertThreshold}.`,
           icon: '/favicon.ico'
