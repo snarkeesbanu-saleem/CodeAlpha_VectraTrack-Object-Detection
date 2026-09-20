@@ -142,8 +142,14 @@ export default function App() {
   const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>({ lat: 13.0525, lng: 80.2115, accuracy: 50 });
 
   const [detectionHistory, setDetectionHistory] = useState<any[]>(() => {
-    return JSON.parse(localStorage.getItem('vectratrack_history') || '[]');
+    try {
+      return JSON.parse(localStorage.getItem('vectratrack_history') || '[]');
+    } catch {
+      return [];
+    }
   });
+
+  const lastUpdateRef = useRef(performance.now());
 
   const addEvent = (ev: Omit<SystemEvent, 'id' | 'timestamp'>) => {
     setEvents(prev => [...prev.slice(-99), {
