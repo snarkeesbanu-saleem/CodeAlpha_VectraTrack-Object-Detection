@@ -369,7 +369,7 @@ export default function CameraTracker({
       // --- CANVAS RENDERING (OVERLAYS, TRAILS, CORNER BRACKETS, LABELS) ---
       tracks.forEach(track => {
         const [tx, ty, tw, th] = track.bbox;
-        const agriCategory = (() => { const c = track.class.toLowerCase(); const crops = new Set(['banana','apple','orange','broccoli','carrot','cake','potted plant']); const pests = new Set(['bird','cat','dog','mouse','bear','sheep','cow']); return crops.has(c) ? 'crop' : pests.has(c) ? 'pest' : 'other'; })();
+        const agriCategory = (() => { const c = track.class.toLowerCase(); const crops = new Set(['apple','orange','broccoli','carrot','potted plant']); const pests = new Set(['bird','mouse']); return crops.has(c) ? 'crop' : pests.has(c) ? 'pest' : 'other'; })();
         const color = agriCategory === 'crop' ? '#16a34a' : agriCategory === 'pest' ? '#d97706' : track.color;
         const isFocal = selectedTrack?.id === track.id;
 

@@ -1,19 +1,17 @@
-// Agriculture class mapping utility
 export type AgriCategory = 'crop' | 'pest' | 'ignore';
 
 const CROP_CLASSES = new Set([
-  'banana', 'apple', 'orange', 'broccoli', 'carrot', 'cake', 'potted plant',
+  'apple', 'orange', 'broccoli', 'carrot', 'potted plant',
 ]);
 const PEST_CLASSES = new Set([
-  'bird', 'cat', 'dog', 'mouse', 'bear', 'sheep', 'cow',
+  'bird', 'mouse',
 ]);
 const CROP_EMOJIS: Record<string, string> = {
-  banana: '🍌', apple: '🍎', orange: '🍊', broccoli: '🥦',
-  carrot: '🥕', cake: '🌾', 'potted plant': '🌱',
+  apple: '🍎', orange: '🍊', broccoli: '🥦',
+  carrot: '🥕', 'potted plant': '🌱',
 };
 const PEST_EMOJIS: Record<string, string> = {
-  bird: '🐦', cat: '🐱', dog: '🐕', mouse: '🐭',
-  bear: '🐻', sheep: '🐑', cow: '🐄',
+  bird: '🐦', mouse: '🐭',
 };
 
 export interface AgriInfo {
@@ -36,8 +34,8 @@ export function getAgriInfo(className: string): AgriInfo {
   return { category: 'ignore', label: cls, emoji: '⬛', hexColor: '#94a3b8' };
 }
 
-export const CROP_CLASS_LIST = ['potted plant', 'banana', 'apple', 'orange', 'broccoli', 'carrot', 'cake'];
-export const PEST_CLASS_LIST = ['bird', 'cat', 'dog', 'mouse', 'bear', 'sheep', 'cow'];
+export const CROP_CLASS_LIST = ['potted plant', 'broccoli', 'carrot', 'apple', 'orange'];
+export const PEST_CLASS_LIST = ['bird', 'mouse'];
 export const IGNORED_CLASS_LIST = ['person', 'car', 'truck', 'bicycle', 'bus', 'laptop', 'chair', 'bottle', 'cell phone'];
 
 export function computeHealthScore(cropCount: number, pestCount: number): number {
