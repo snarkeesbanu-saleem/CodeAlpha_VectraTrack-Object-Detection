@@ -369,7 +369,8 @@ export default function CameraTracker({
       // --- CANVAS RENDERING (OVERLAYS, TRAILS, CORNER BRACKETS, LABELS) ---
       tracks.forEach(track => {
         const [tx, ty, tw, th] = track.bbox;
-        const color = track.color;
+        const agriCategory = (() => { const c = track.class.toLowerCase(); const crops = new Set(['banana','apple','orange','broccoli','carrot','cake','potted plant']); const pests = new Set(['bird','cat','dog','mouse','bear','sheep','cow']); return crops.has(c) ? 'crop' : pests.has(c) ? 'pest' : 'other'; })();
+        const color = agriCategory === 'crop' ? '#16a34a' : agriCategory === 'pest' ? '#d97706' : track.color;
         const isFocal = selectedTrack?.id === track.id;
 
         // 1. Draw route history lines if enabled
@@ -502,7 +503,8 @@ export default function CameraTracker({
         }
 
         // 5. Draw ID and HUD Category pill box label
-        const labelText = `[ID:${track.id}] ${track.class.toUpperCase()} ${Math.round(track.score * 100)}%`;
+        const emoji = agriCategory === 'crop' ? '🌱' : agriCategory === 'pest' ? '🐛' : '⬛';
+        const labelText = `${emoji} [ID:${track.id}] ${track.class.toUpperCase()} ${Math.round(track.score * 100)}%`;
         ctx.font = 'bold 9px monospace';
         const textMetrics = ctx.measureText(labelText);
         const textWidth = textMetrics.width;
