@@ -295,9 +295,9 @@ export default function App() {
   const handlePDFReport = () => {
     const severity = getSeverity(pestCount);
     const gpsString = gpsLocation ? `📍 GPS: ${gpsLocation.lat.toFixed(4)}, ${gpsLocation.lng.toFixed(4)} (±${gpsLocation.accuracy.toFixed(0)}m)` : '';
-    const reportHtml = \`
+    const reportHtml = `
       <!DOCTYPE html><html><head>
-      <title>VectraTrack Field Report - \${new Date().toLocaleDateString()}</title>
+      <title>VectraTrack Field Report - ${new Date().toLocaleDateString()}</title>
       <style>
         body { font-family: Inter, Arial, sans-serif; margin: 40px; color: #1e293b; }
         h1 { color: #16a34a; } h2 { color: #475569; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
@@ -311,32 +311,32 @@ export default function App() {
       </style></head><body>
       <button onclick="window.print()" style="float:right;background:#16a34a;color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;">🖨️ Print / Save PDF</button>
       <h1>🌾 VectraTrack Agriculture Field Report</h1>
-      <p style="color:#64748b">Generated: \${new Date().toLocaleString()} | Location: Field Monitor \${gpsString}</p>
+      <p style="color:#64748b">Generated: ${new Date().toLocaleString()} | Location: Field Monitor ${gpsString}</p>
       <h2>📊 Current Detection Summary</h2>
       <div>
-        <div class="stat"><div class="stat-num" style="color:#16a34a">\${cropCount}</div><div class="stat-label">Live Crops</div></div>
-        <div class="stat"><div class="stat-num" style="color:#d97706">\${pestCount}</div><div class="stat-label">Live Pests</div></div>
-        <div class="stat"><div class="stat-num" style="color:#3b82f6">\${tracks.length}</div><div class="stat-label">Active Tracks</div></div>
-        <div class="stat"><div class="stat-num" style="color:#16a34a">\${healthScore}</div><div class="stat-label">Health Score</div></div>
+        <div class="stat"><div class="stat-num" style="color:#16a34a">${cropCount}</div><div class="stat-label">Live Crops</div></div>
+        <div class="stat"><div class="stat-num" style="color:#d97706">${pestCount}</div><div class="stat-label">Live Pests</div></div>
+        <div class="stat"><div class="stat-num" style="color:#3b82f6">${tracks.length}</div><div class="stat-label">Active Tracks</div></div>
+        <div class="stat"><div class="stat-num" style="color:#16a34a">${healthScore}</div><div class="stat-label">Health Score</div></div>
       </div>
-      <p><strong>Pest Severity:</strong> <span class="severity" style="background:\${severity.bg};color:\${severity.color}">\${severity.icon} \${severity.level}</span></p>
+      <p><strong>Pest Severity:</strong> <span class="severity" style="background:${severity.bg};color:${severity.color}">${severity.icon} ${severity.level}</span></p>
       <h2>🌿 Field Health Assessment</h2>
-      <p>\${healthScore >= 75 ? '✅ Field is healthy. Continue routine monitoring and preventive measures.' : healthScore >= 45 ? '⚠️ Moderate pest pressure detected. Consider targeted pest intervention.' : '🚨 CRITICAL: High pest density. Immediate inspection and treatment required!'}</p>
+      <p>${healthScore >= 75 ? '✅ Field is healthy. Continue routine monitoring and preventive measures.' : healthScore >= 45 ? '⚠️ Moderate pest pressure detected. Consider targeted pest intervention.' : '🚨 CRITICAL: High pest density. Immediate inspection and treatment required!'}</p>
       <div class="recommendation">
         <strong>💡 Recommendation:</strong><br/>
-        \${pestCount === 0 ? 'No pests currently detected. Maintain current practices.' : pestCount <= 3 ? 'Low pest pressure. Monitor daily. Consider biological pest control.' : pestCount <= 7 ? 'Medium pest pressure. Apply targeted pesticides to affected zones. Check Zone Map.' : 'High pest pressure. Immediate chemical treatment recommended. Contact agricultural expert.'}
+        ${pestCount === 0 ? 'No pests currently detected. Maintain current practices.' : pestCount <= 3 ? 'Low pest pressure. Monitor daily. Consider biological pest control.' : pestCount <= 7 ? 'Medium pest pressure. Apply targeted pesticides to affected zones. Check Zone Map.' : 'High pest pressure. Immediate chemical treatment recommended. Contact agricultural expert.'}
       </div>
       <h2>📋 Recent Event Log</h2>
       <table><tr><th>Time</th><th>Type</th><th>Event</th></tr>
-      \${events.slice(-20).reverse().map(e => \`<tr><td>\${e.timestamp.split('T')[1]?.slice(0,8)}</td><td>\${e.type}</td><td>\${e.message}</td></tr>\`).join('')}
+      ${events.slice(-20).reverse().map(e => `<tr><td>${e.timestamp.split('T')[1]?.slice(0,8)}</td><td>${e.type}</td><td>${e.message}</td></tr>`).join('')}
       </table>
       <h2>📅 7-Day History</h2>
       <table><tr><th>Date</th><th>Crops</th><th>Pests</th><th>Severity</th><th>Health</th></tr>
-      \${detectionHistory.map((h: any) => \`<tr><td>\${h.date}</td><td>\${h.crops}</td><td>\${h.pests}</td><td>\${h.severity}</td><td>\${h.health}</td></tr>\`).join('')}
+      ${detectionHistory.map((h: any) => `<tr><td>${h.date}</td><td>${h.crops}</td><td>${h.pests}</td><td>${h.severity}</td><td>${h.health}</td></tr>`).join('')}
       </table>
-      <p style="margin-top:40px;color:#94a3b8;font-size:11px">VectraTrack Agriculture v1.0 — Precision Agriculture AI © \${new Date().getFullYear()}</p>
+      <p style="margin-top:40px;color:#94a3b8;font-size:11px">VectraTrack Agriculture v1.0 — Precision Agriculture AI © ${new Date().getFullYear()}</p>
       </body></html>
-    \`;
+    `;
     const win = window.open('', '_blank');
     if (win) { win.document.write(reportHtml); win.document.close(); }
     addEvent({ type: 'success', message: '📄 PDF report opened in new tab. Use Ctrl+P to save as PDF.' });
@@ -344,11 +344,11 @@ export default function App() {
 
   const getFieldBotAdvice = () => {
     if (pestCount === 0 && cropCount === 0) return { icon: '🤖', advice: 'No detections yet. Point the camera at your field or use the simulator to test.', type: 'info' };
-    if (pestCount >= 8) return { icon: '🚨', advice: \`CRITICAL ALERT: \${pestCount} pests detected! Apply broad-spectrum pesticide immediately. Isolate affected zones. Contact your agricultural officer.\`, type: 'danger' };
-    if (pestCount >= 4) return { icon: '⚠️', advice: \`Moderate pest pressure (\${pestCount} pests). Recommend: Apply targeted biological pesticide. Monitor zones \${zoneData.map((z,i) => z.pests > 0 ? i+1 : null).filter(Boolean).join(', ')} closely.\`, type: 'warning' };
-    if (pestCount > 0) return { icon: '👁️', advice: \`Low pest activity (\${pestCount} pest\${pestCount > 1 ? 's' : ''}). Recommend: Continue monitoring. Consider neem oil or trapping. Check again in 2 hours.\`, type: 'caution' };
-    if (cropCount > 5) return { icon: '🌱', advice: \`Excellent! \${cropCount} crops detected with no pests. Field health is \${healthScore}%. Continue current practices. Next check recommended in 4 hours.\`, type: 'good' };
-    return { icon: '🌿', advice: \`\${cropCount} crops visible. Field looks clear. Health score: \${healthScore}%. Routine monitoring recommended.\`, type: 'good' };
+    if (pestCount >= 8) return { icon: '🚨', advice: `CRITICAL ALERT: ${pestCount} pests detected! Apply broad-spectrum pesticide immediately. Isolate affected zones. Contact your agricultural officer.`, type: 'danger' };
+    if (pestCount >= 4) return { icon: '⚠️', advice: `Moderate pest pressure (${pestCount} pests). Recommend: Apply targeted biological pesticide. Monitor zones ${zoneData.map((z,i) => z.pests > 0 ? i+1 : null).filter(Boolean).join(', ')} closely.`, type: 'warning' };
+    if (pestCount > 0) return { icon: '👁️', advice: `Low pest activity (${pestCount} pest${pestCount > 1 ? 's' : ''}). Recommend: Continue monitoring. Consider neem oil or trapping. Check again in 2 hours.`, type: 'caution' };
+    if (cropCount > 5) return { icon: '🌱', advice: `Excellent! ${cropCount} crops detected with no pests. Field health is ${healthScore}%. Continue current practices. Next check recommended in 4 hours.`, type: 'good' };
+    return { icon: '🌿', advice: `${cropCount} crops visible. Field looks clear. Health score: ${healthScore}%. Routine monitoring recommended.`, type: 'good' };
   };
   const botAdvice = getFieldBotAdvice();
   const botColors = {
@@ -553,7 +553,7 @@ export default function App() {
                 <div className="text-5xl font-bold mb-1" style={{ color: gradeColor }}>{healthScore}</div>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2.5 mb-3">
-                <div className="h-2.5 rounded-full transition-all duration-700" style={{ width: \`\${healthScore}%\`, backgroundColor: gradeColor }} />
+                <div className="h-2.5 rounded-full transition-all duration-700" style={{ width: `${healthScore}%`, backgroundColor: gradeColor }} />
               </div>
               <p className="text-xs text-slate-400 text-center">
                 {healthScore >= 75 ? t.healthy : healthScore >= 45 ? t.moderate : t.critical}
@@ -688,7 +688,7 @@ export default function App() {
               const hasPest = zone.pests > 0;
               const hasCrop = zone.crops > 0;
               return (
-                <div key={i} className={\`rounded-lg border-2 p-3 text-center transition-all \${hasPest ? 'border-red-300 bg-red-50' : hasCrop ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-slate-50'}\`}>
+                <div key={i} className={`rounded-lg border-2 p-3 text-center transition-all ${hasPest ? 'border-red-300 bg-red-50' : hasCrop ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
                   <div className="text-xs font-bold text-slate-500 mb-1">Zone {i+1}</div>
                   <div className="flex justify-center gap-2 text-xs">
                     <span className="text-green-600 font-semibold">🌱 {zone.crops}</span>
