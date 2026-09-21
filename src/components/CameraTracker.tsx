@@ -369,8 +369,13 @@ export default function CameraTracker({
       // --- CANVAS RENDERING (OVERLAYS, TRAILS, CORNER BRACKETS, LABELS) ---
       tracks.forEach(track => {
         const [tx, ty, tw, th] = track.bbox;
-        const agriCategory = (() => { const c = track.class.toLowerCase(); const crops = new Set(['apple','orange','broccoli','carrot','potted plant']); const pests = new Set(['bird','mouse']); return crops.has(c) ? 'crop' : pests.has(c) ? 'pest' : 'other'; })();
-        const color = agriCategory === 'crop' ? '#16a34a' : agriCategory === 'pest' ? '#d97706' : track.color;
+        const agriCategory = (() => {
+          const c = track.class.toLowerCase();
+          const crops = new Set(['apple', 'orange', 'broccoli', 'carrot', 'potted plant', 'banana', 'cake', 'plant', 'flower']);
+          const pests = new Set(['bird', 'mouse', 'cat', 'dog', 'bear', 'sheep', 'cow', 'rat']);
+          return crops.has(c) ? 'crop' : pests.has(c) ? 'pest' : 'other';
+        })();
+        const color = agriCategory === 'crop' ? '#22c55e' : agriCategory === 'pest' ? '#f59e0b' : track.color;
         const isFocal = selectedTrack?.id === track.id;
 
         // 1. Draw route history lines if enabled
