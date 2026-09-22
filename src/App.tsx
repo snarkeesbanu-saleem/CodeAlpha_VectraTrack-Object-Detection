@@ -6,9 +6,10 @@ import { Sidebar } from "./components/agri/Sidebar";
 import { Dashboard } from "./components/agri/Dashboard";
 import { Report } from "./components/agri/Report";
 import { ImageAnalysis } from "./components/agri/ImageAnalysis";
+import { ComparisonView } from "./components/agri/ComparisonView";
 import { Chatbot } from "./components/agri/Chatbot";
 import heroImg from "./assets/field-hero.jpg";
-import { Leaf, FileText, Download, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 
 export default function App() {
   const state = useTracking();
@@ -25,9 +26,9 @@ export default function App() {
   };
 
   return (
-    <main className="min-h-screen text-slate-100 selection:bg-emerald-500 selection:text-black">
+    <main className="min-h-screen text-slate-100 selection:bg-emerald-500 selection:text-black bg-[#09140c]">
       
-      {/* TOP HEADER & HERO BANNER (Matches Exact Lovable Source) */}
+      {/* TOP HEADER & HERO BANNER */}
       <header className="relative overflow-hidden border-b border-border bg-[#06140b]">
         <img
           src={heroImg}
@@ -41,14 +42,14 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs tracking-[0.35em] text-crop uppercase font-mono-tech font-bold">
-                  VectraTrack ML v4.0
+                  VectraTrack ML v4.5 AI Precision
                 </span>
               </div>
               <h1 className="text-3xl font-black sm:text-4xl tracking-tight text-white">
-                Agriculture Monitoring
+                Agricultural Monitoring & Outbreak Decision Support
               </h1>
               <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground leading-relaxed">
-                Dual-class crop and pest tracking with unique IDs, pest-only trajectories, density alerts and exportable field analytics.
+                Dual-class crop, pest & leaf disease tracking with precision confidence filtering (≥0.58), severity scoring, AI treatment recommendations, 7-day trend analytics & side-by-side field comparison.
               </p>
             </div>
 
@@ -75,13 +76,14 @@ export default function App() {
         </div>
       </header>
 
-      {/* MAIN CONTAINER WITH ALWAYS-VISIBLE SIDEBAR (lg:grid-cols-[1fr_280px]) */}
+      {/* MAIN CONTAINER WITH ALWAYS-VISIBLE SIDEBAR */}
       <div className="mx-auto max-w-7xl px-6 py-8">
         <Tabs defaultValue="live">
           <TabsList className="mb-6 flex-wrap bg-panel border border-border p-1.5 rounded-xl">
             <TabsTrigger value="live">🎥 Live Monitor</TabsTrigger>
             <TabsTrigger value="video">📹 Field Video</TabsTrigger>
             <TabsTrigger value="image">🖼️ Image Analysis</TabsTrigger>
+            <TabsTrigger value="compare">🌾 Before vs After</TabsTrigger>
             <TabsTrigger value="dashboard">📊 Dashboard</TabsTrigger>
             <TabsTrigger value="assistant">💬 FieldBot</TabsTrigger>
             <TabsTrigger value="report">📖 Report</TabsTrigger>
@@ -98,6 +100,9 @@ export default function App() {
               <TabsContent value="image">
                 <ImageAnalysis threshold={state.threshold} />
               </TabsContent>
+              <TabsContent value="compare">
+                <ComparisonView />
+              </TabsContent>
               <TabsContent value="dashboard">
                 <Dashboard state={state} />
               </TabsContent>
@@ -109,7 +114,7 @@ export default function App() {
               </TabsContent>
             </div>
 
-            {/* SIDEBAR ALWAYS VISIBLE ON THE RIGHT AS IN LOVABLE SOURCE */}
+            {/* SIDEBAR ALWAYS VISIBLE ON THE RIGHT */}
             <Sidebar state={state} />
           </div>
         </Tabs>

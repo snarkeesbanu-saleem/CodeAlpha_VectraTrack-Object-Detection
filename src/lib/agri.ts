@@ -1,18 +1,37 @@
 // VectraTrack Agriculture — class mapping, tracking simulation, alerts.
 
-export type AgriCategory = "crop" | "pest" | "ignored";
+export type AgriCategory = "crop" | "pest" | "disease" | "ignored";
 
 const CROP_CLASSES = [
   "potted plant",
-  "banana",
-  "apple",
-  "orange",
   "broccoli",
   "carrot",
-  "cake",
+  "apple",
+  "orange",
+  "crop row",
+  "maize",
 ];
 
-const PEST_CLASSES = ["bird", "cat", "dog", "mouse", "bear", "sheep", "cow", "rat"];
+const PEST_CLASSES = [
+  "aphid",
+  "beetle",
+  "caterpillar",
+  "mite",
+  "moth",
+  "armyworm",
+  "whitefly",
+  "grasshopper",
+  "bird",
+  "mouse",
+];
+
+const DISEASE_CLASSES = [
+  "leaf blight",
+  "leaf spot",
+  "powdery mildew",
+  "rust",
+  "yellowing",
+];
 
 export interface AgriMapping {
   category: AgriCategory;
@@ -20,15 +39,19 @@ export interface AgriMapping {
   color: string;
 }
 
-/** AgriClassMapper — maps COCO-80 class names to agriculture categories. */
+/** AgriClassMapper — maps COCO / Custom class names to agriculture categories. */
 export const AgriClassMapper = {
   crops: CROP_CLASSES,
   pests: PEST_CLASSES,
+  diseases: DISEASE_CLASSES,
   map(cocoClass: string): AgriMapping {
-    if (CROP_CLASSES.includes(cocoClass))
+    const cls = cocoClass.toLowerCase().trim();
+    if (CROP_CLASSES.includes(cls))
       return { category: "crop", label: "Crop", color: "var(--crop)" };
-    if (PEST_CLASSES.includes(cocoClass))
+    if (PEST_CLASSES.includes(cls))
       return { category: "pest", label: "Pest", color: "var(--pest)" };
+    if (DISEASE_CLASSES.includes(cls))
+      return { category: "disease", label: "Disease", color: "#f43f5e" };
     return { category: "ignored", label: "Ignored", color: "var(--muted-foreground)" };
   },
 };
@@ -36,7 +59,7 @@ export const AgriClassMapper = {
 export interface Track {
   id: number;
   cocoClass: string;
-  category: Exclude<AgriCategory, "ignored">;
+  category: "crop" | "pest" | "disease";
   conf: number;
   cx: number;
   cy: number;
@@ -53,6 +76,7 @@ export interface FrameResult {
   tracks: Track[];
   cropCount: number;
   pestCount: number;
+  diseaseCount: number;
   alert: boolean;
 }
 
@@ -80,8 +104,7 @@ const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)] as
 
 /**
  * CustomSortTracker (simulation) — Kalman-style constant velocity update with
- * ByteTrack-inspired two-stage association: low-confidence detections keep
- * their ID alive through occlusion instead of being dropped.
+ * ByteTrack-inspired two-stage association.
  */
 export class CustomSortTracker {
   private nextId = 1;
@@ -98,28 +121,30 @@ export class CustomSortTracker {
     this.height = height;
   }
 
-  seed(cropCount = 9, pestCount = 3) {
+  seed(cropCount = 8, pestCount = 3, diseaseCount = 2) {
     this.tracks = [];
     this.nextId = 1;
     this.frame = 0;
     for (let i = 0; i < cropCount; i++) this.spawn("crop");
     for (let i = 0; i < pestCount; i++) this.spawn("pest");
+    for (let i = 0; i < diseaseCount; i++) this.spawn("disease");
   }
 
-  spawn(category: "crop" | "pest") {
+  spawn(category: "crop" | "pest" | "disease") {
     const isCrop = category === "crop";
-    const size = isCrop ? rand(90, 150) : rand(48, 80);
+    const isDisease = category === "disease";
+    const size = isCrop ? rand(90, 150) : isDisease ? rand(60, 100) : rand(48, 80);
     const track: Track = {
       id: this.nextId++,
-      cocoClass: isCrop ? pick(CROP_CLASSES) : pick(PEST_CLASSES),
+      cocoClass: isCrop ? pick(CROP_CLASSES) : isDisease ? pick(DISEASE_CLASSES) : pick(PEST_CLASSES),
       category,
-      conf: rand(0.72, 0.97),
+      conf: rand(0.65, 0.96),
       cx: rand(size, this.width - size),
       cy: rand(size, this.height - size),
       w: size,
       h: size * rand(0.8, 1.1),
-      vx: isCrop ? 0 : rand(-4.5, 4.5),
-      vy: isCrop ? 0 : rand(-3.5, 3.5),
+      vx: isCrop || isDisease ? 0 : rand(-4.5, 4.5),
+      vy: isCrop || isDisease ? 0 : rand(-3.5, 3.5),
       speed: 0,
       trail: [],
     };
@@ -136,11 +161,14 @@ export class CustomSortTracker {
     return this.tracks.filter((t) => t.category === "pest").length;
   }
 
+  get diseaseCount() {
+    return this.tracks.filter((t) => t.category === "disease").length;
+  }
+
   step(): FrameResult {
     this.frame++;
     for (const t of this.tracks) {
       if (t.category === "pest") {
-        // Kalman-style predict + slight process noise
         t.vx += rand(-0.35, 0.35);
         t.vy += rand(-0.3, 0.3);
         t.vx = Math.max(-6, Math.min(6, t.vx));
@@ -155,10 +183,9 @@ export class CustomSortTracker {
         t.trail.push({ x: t.cx, y: t.cy });
         if (t.trail.length > 42) t.trail.shift();
       } else {
-        // Crops are stationary — tiny jitter only from detector noise
         t.speed = 0;
       }
-      t.conf = Math.max(0.55, Math.min(0.99, t.conf + rand(-0.02, 0.02)));
+      t.conf = Math.max(0.58, Math.min(0.99, t.conf + rand(-0.02, 0.02)));
     }
     const cropCount = this.tracks.filter((t) => t.category === "crop").length;
     return {
@@ -166,6 +193,7 @@ export class CustomSortTracker {
       tracks: this.tracks.map((t) => ({ ...t, trail: [...t.trail] })),
       cropCount,
       pestCount: this.pestCount,
+      diseaseCount: this.diseaseCount,
       alert: false,
     };
   }

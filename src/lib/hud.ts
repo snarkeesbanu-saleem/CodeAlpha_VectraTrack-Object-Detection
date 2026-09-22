@@ -3,6 +3,7 @@ import type { Track } from "./agri";
 const CROP = "#22c55e";
 const PEST = "#f59e0b";
 const PEST_ALERT = "#ef4444";
+const DISEASE = "#f43f5e";
 
 function bracket(
   ctx: CanvasRenderingContext2D,
@@ -43,9 +44,22 @@ export function drawHud(
 ) {
   ctx.clearRect(0, 0, opts.width, opts.height);
 
+  // Empty State overlay when 0 tracks pass confidence & size thresholds
+  if (!tracks || tracks.length === 0) {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.4)";
+    ctx.fillRect(0, opts.height / 2 - 24, opts.width, 48);
+    ctx.font = "bold 14px system-ui, sans-serif";
+    ctx.fillStyle = "#94a3b8";
+    ctx.textAlign = "center";
+    ctx.fillText("ℹ️ No Crop / Pest / Disease Detected (Min Conf ≥ 0.58)", opts.width / 2, opts.height / 2 + 5);
+    ctx.textAlign = "start";
+    return;
+  }
+
   for (const t of tracks) {
     const isPest = t.category === "pest";
-    const color = isPest ? (opts.alert ? PEST_ALERT : PEST) : CROP;
+    const isDisease = t.category === "disease";
+    const color = isDisease ? DISEASE : isPest ? (opts.alert ? PEST_ALERT : PEST) : CROP;
     const x = t.cx - t.w / 2;
     const y = t.cy - t.h / 2;
 
@@ -75,16 +89,17 @@ export function drawHud(
 
     bracket(ctx, x, y, t.w, t.h, color);
 
-    const label = `#${t.id} ${isPest ? "Pest" : "Crop"} [${t.cocoClass}]`;
+    const categoryName = isDisease ? "Disease" : isPest ? "Pest" : "Crop";
+    const label = `#${t.id} ${categoryName} [${t.cocoClass}]`;
     ctx.font = "12px 'Share Tech Mono', monospace";
     const tw = ctx.measureText(label).width + 12;
-    ctx.fillStyle = "rgba(2, 12, 6, 0.82)";
+    ctx.fillStyle = "rgba(2, 12, 6, 0.85)";
     ctx.fillRect(x, y - 20, tw, 18);
     ctx.fillStyle = color;
     ctx.fillRect(x, y - 20, 3, 18);
     ctx.fillText(label, x + 8, y - 7);
 
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.font = "10px 'Share Tech Mono', monospace";
     ctx.fillText(`${(t.conf * 100).toFixed(0)}%`, x + t.w - 28, y + t.h + 12);
   }
