@@ -16,40 +16,23 @@ import { useField } from "./contexts/FieldContext";
 import { useVoiceCommand } from "./hooks/useVoiceCommand";
 import { LANG_META, type Lang } from "./i18n/translations";
 import heroImg from "./assets/field-hero.jpg";
-import { MapPin, Mic, MicOff, Plus, ChevronDown, Check, Loader2, Info } from "lucide-react";
+import { MapPin, Mic, MicOff, Plus, ChevronDown, Check, Loader2, Volume2, X } from "lucide-react";
 
 export default function App() {
   const state = useTracking();
   const { lang, setLang, t } = useTranslation();
   const { fields, activeField, setActiveField, addField } = useField();
 
-  const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number } | null>({ lat: 10.7870, lng: 79.1378 }); // Thanjavur delta default
+  const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number } | null>({ lat: 10.7870, lng: 79.1378 });
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'locating' | 'success' | 'manual'>('idle');
   const [activeTab, setActiveTab] = useState('live');
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showFieldMenu, setShowFieldMenu] = useState(false);
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [voiceFeedback, setVoiceFeedback] = useState('');
 
-  // ── Click-outside refs to close dropdowns ──────────────────────────────────
-  const langRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (langRef.current && !langRef.current.contains(e.target as Node)) {
-        setShowLangMenu(false);
-      }
-      if (fieldRef.current && !fieldRef.current.contains(e.target as Node)) {
-        setShowFieldMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('touchstart', handler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('touchstart', handler);
-    };
-  }, []);
+  const langRef = useRef<HTMLDivElement>(null);
 
   const handleFetchGps = () => {
     if (!('geolocation' in navigator)) {
@@ -74,7 +57,7 @@ export default function App() {
   const promptManualGps = (reason: string) => {
     setGpsStatus('manual');
     const input = prompt(
-      `${reason}\nEnter field coordinates (lat, lng) or city:\nExample: 10.78, 79.13 (Thanjavur) or 11.01, 76.95 (Coimbatore)`,
+      `${reason}\nEnter field coordinates (lat, lng):\nExample: 10.78, 79.13 (Thanjavur) or 11.01, 76.95 (Coimbatore)`,
       gpsLocation ? `${gpsLocation.lat.toFixed(2)}, ${gpsLocation.lng.toFixed(2)}` : '10.78, 79.13'
     );
     if (input) {
@@ -90,14 +73,21 @@ export default function App() {
   const onVoiceCommand = useCallback((transcript: string, tab: string | null) => {
     if (tab) {
       setActiveTab(tab);
-      setVoiceFeedback(`✓ "${transcript}" → ${tab.toUpperCase()}`);
+      setVoiceFeedback(`✓ Matched: "${transcript}" → ${tab.toUpperCase()}`);
     } else {
-      setVoiceFeedback(`🎤 "${transcript}" (Try saying 'Dashboard', 'Weather', or 'Live')`);
+      setVoiceFeedback(`🎤 Heard: "${transcript}"`);
     }
-    setTimeout(() => setVoiceFeedback(''), 4500);
+    setTimeout(() => setVoiceFeedback(''), 5000);
   }, []);
 
   const { isListening, error: voiceError, toggle: toggleVoice } = useVoiceCommand(lang, onVoiceCommand);
+
+  const handleVoiceButtonClick = () => {
+    setShowVoiceModal(true);
+    if (!isListening) {
+      toggleVoice();
+    }
+  };
 
   const TABS = [
     { value: 'live',      label: t('liveMonitor') },
@@ -112,11 +102,36 @@ export default function App() {
     { value: 'report',    label: t('report') },
   ];
 
-  return (
-    <main className="min-h-screen text-slate-100 selection:bg-emerald-500 selection:text-black bg-[#09140c]">
+  const VOICE_COMMAND_EXAMPLES: { text: string; tab: string }[] =
+    lang === 'ta'
+      ? [
+          { text: 'நேரடி கண்காணிப்பு (Live)', tab: 'live' },
+          { text: 'படம் ஆய்வு (Image Analysis)', tab: 'image' },
+          { text: 'வானிலை முன்னறிவிப்பு (Weather)', tab: 'weather' },
+          { text: 'டாஷ்போர்டு (Dashboard)', tab: 'dashboard' },
+          { text: 'சிகிச்சை திட்டம் (Treatment)', tab: 'assistant' },
+        ]
+      : [
+          { text: 'Live Monitor', tab: 'live' },
+          { text: 'Image Analysis', tab: 'image' },
+          { text: 'Weather Forecast', tab: 'weather' },
+          { text: 'Dashboard', tab: 'dashboard' },
+          { text: 'Treatment Advice', tab: 'assistant' },
+        ];
 
-      {/* ── HERO BANNER (Notice: overflow-visible so dropdowns float over canvas) ── */}
-      <header className="relative border-b border-border bg-[#06140b] z-30">
+  return (
+    <main className="min-h-screen text-slate-100 selection:bg-emerald-500 selection:text-black bg-[#09140c] relative">
+
+      {/* ── BACKDROP DIMMER FOR OPEN MENUS ───────────────────────────────────── */}
+      {(showFieldMenu || showLangMenu) && (
+        <div
+          className="fixed inset-0 z-[9990] bg-black/60 backdrop-blur-[2px] transition-opacity animate-in fade-in"
+          onClick={() => { setShowFieldMenu(false); setShowLangMenu(false); }}
+        />
+      )}
+
+      {/* ── HERO BANNER & NAVIGATION BAR ────────────────────────────────────── */}
+      <header className="relative border-b border-emerald-900/50 bg-[#06140b] z-[9995]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img
             src={heroImg}
@@ -132,66 +147,68 @@ export default function App() {
                 <span className="text-xs tracking-[0.35em] text-emerald-400 uppercase font-mono font-bold">
                   VectraTrack ML v5.0 AI Precision
                 </span>
-                <span className="px-2 py-0.5 text-[10px] bg-emerald-900/60 text-emerald-400 border border-emerald-800/60 rounded font-bold">
+                <span className="px-2 py-0.5 text-[10px] bg-emerald-900/80 text-emerald-300 border border-emerald-700/80 rounded font-bold">
                   PWA Ready
                 </span>
               </div>
-              <h1 className="text-xl font-black sm:text-2xl tracking-tight text-white">
+              <h1 className="text-xl font-black sm:text-2xl tracking-tight text-white drop-shadow-md">
                 {t('appTitle')}
               </h1>
-              <p className="mt-1 max-w-2xl text-xs text-muted-foreground leading-relaxed">
+              <p className="mt-1 max-w-2xl text-xs text-slate-300 leading-relaxed drop-shadow">
                 {t('appSubtitle')}
               </p>
             </div>
 
-            {/* ── TOP ACTION CONTROLS ────────────────────────────────────────── */}
+            {/* ── TOP ACTION BUTTONS ─────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-2 mt-1">
 
               {/* 🌾 1. FIELD SELECTOR DROPDOWN */}
-              <div ref={fieldRef} className="relative">
+              <div ref={fieldRef} className="relative z-[9999]">
                 <button
                   type="button"
                   onClick={() => { setShowFieldMenu(v => !v); setShowLangMenu(false); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 hover:text-white hover:bg-emerald-900/80 transition font-medium shadow-md"
+                  className="flex items-center gap-2 px-3.5 py-2 text-xs rounded-lg bg-[#0d2217] border-2 border-emerald-500/80 text-emerald-200 hover:text-white hover:bg-emerald-900/90 transition font-bold shadow-[0_4px_20px_rgba(0,0,0,0.5)] cursor-pointer"
                 >
-                  <span>🌾</span>
-                  <span className="max-w-[130px] truncate">{activeField?.name ?? 'Select Field'}</span>
-                  <ChevronDown className="h-3 w-3 opacity-70 ml-0.5" />
+                  <span className="text-base">🌾</span>
+                  <span className="max-w-[140px] truncate">{activeField?.name ?? 'Main Farm Field'}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-emerald-400" />
                 </button>
 
                 {showFieldMenu && (
-                  <div className="absolute right-0 sm:left-0 top-full mt-2 z-50 w-64 rounded-xl border border-slate-700 bg-slate-950/95 backdrop-blur-md shadow-2xl p-1.5 flex flex-col gap-1">
-                    <div className="px-3 py-1.5 border-b border-slate-800 flex items-center justify-between">
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Registered Fields</span>
-                      <span className="text-[10px] text-emerald-400 font-mono">{fields.length} Active</span>
+                  <div className="absolute left-0 sm:right-auto top-full mt-2.5 z-[10000] w-72 rounded-xl border-2 border-emerald-500 bg-[#0c1f15] shadow-[0_16px_50px_rgba(0,0,0,0.95)] p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95">
+                    <div className="px-3 py-2 border-b border-emerald-900/70 flex items-center justify-between">
+                      <span className="text-[11px] text-emerald-300 uppercase tracking-wider font-extrabold">Registered Farm Fields</span>
+                      <span className="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded-full font-mono border border-emerald-800">
+                        {fields.length} Active
+                      </span>
                     </div>
 
-                    <div className="max-h-52 overflow-y-auto space-y-0.5 py-1">
+                    <div className="max-h-60 overflow-y-auto space-y-1 py-1">
                       {fields.map(f => (
                         <button
                           key={f.id}
                           type="button"
                           onClick={() => { setActiveField(f); setShowFieldMenu(false); }}
-                          className={`w-full text-left px-3 py-2 text-xs rounded-lg transition flex items-center justify-between ${
+                          className={`w-full text-left px-3 py-2.5 text-xs rounded-lg transition flex items-center justify-between cursor-pointer ${
                             activeField?.id === f.id
-                              ? 'bg-emerald-950/60 text-emerald-300 font-bold border border-emerald-800/60'
-                              : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                              ? 'bg-emerald-800/80 text-white font-bold border border-emerald-400'
+                              : 'text-slate-200 hover:bg-emerald-950/80 hover:text-emerald-200 border border-transparent'
                           }`}
                         >
                           <div>
-                            <p className="font-semibold">{f.name}</p>
-                            <p className="text-[10px] text-slate-400 font-normal">🌱 {f.cropType} · {f.location}</p>
+                            <p className="font-bold text-white text-xs">{f.name}</p>
+                            <p className="text-[11px] text-emerald-400 font-medium">🌱 {f.cropType} · {f.location}</p>
                           </div>
-                          {activeField?.id === f.id && <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                          {activeField?.id === f.id && <Check className="h-4 w-4 text-emerald-300 shrink-0 font-bold" />}
                         </button>
                       ))}
                     </div>
 
-                    <div className="border-t border-slate-800 pt-1">
+                    <div className="border-t border-emerald-900/70 pt-1.5">
                       <button
                         type="button"
                         onClick={() => {
-                          const name = prompt('Enter new field name (e.g., North Paddy Plot):');
+                          const name = prompt('Enter new field name (e.g., South Paddy Plot):');
                           if (name?.trim()) {
                             const crop = prompt('Primary crop type (e.g., Paddy, Tomato, Cotton):') ?? 'Paddy / Rice';
                             const loc = prompt('Location (e.g., Thanjavur, TN):') ?? 'Tamil Nadu';
@@ -199,9 +216,9 @@ export default function App() {
                           }
                           setShowFieldMenu(false);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs rounded-lg text-emerald-400 hover:bg-emerald-950/50 hover:text-emerald-300 transition flex items-center gap-1.5 font-medium"
+                        className="w-full text-left px-3 py-2 text-xs rounded-lg bg-emerald-950/90 text-emerald-300 hover:bg-emerald-900 hover:text-white transition flex items-center gap-2 font-bold border border-emerald-700/60 cursor-pointer"
                       >
-                        <Plus className="h-3.5 w-3.5" /> {t('addField')}
+                        <Plus className="h-4 w-4 text-emerald-400" /> {t('addField')}
                       </button>
                     </div>
                   </div>
@@ -209,38 +226,38 @@ export default function App() {
               </div>
 
               {/* 🇬🇧 2. LANGUAGE SELECTOR DROPDOWN */}
-              <div ref={langRef} className="relative">
+              <div ref={langRef} className="relative z-[9999]">
                 <button
                   type="button"
                   onClick={() => { setShowLangMenu(v => !v); setShowFieldMenu(false); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-slate-900/90 border border-slate-700 text-slate-200 hover:text-white hover:border-slate-500 transition font-medium shadow-md"
+                  className="flex items-center gap-2 px-3.5 py-2 text-xs rounded-lg bg-[#0d2217] border-2 border-emerald-500/80 text-emerald-200 hover:text-white hover:bg-emerald-900/90 transition font-bold shadow-[0_4px_20px_rgba(0,0,0,0.5)] cursor-pointer"
                 >
-                  <span>{LANG_META[lang].flag}</span>
+                  <span className="text-base">{LANG_META[lang].flag}</span>
                   <span>{LANG_META[lang].label}</span>
-                  <ChevronDown className="h-3 w-3 opacity-70 ml-0.5" />
+                  <ChevronDown className="h-3.5 w-3.5 text-emerald-400" />
                 </button>
 
                 {showLangMenu && (
-                  <div className="absolute right-0 sm:left-0 top-full mt-2 z-50 w-44 rounded-xl border border-slate-700 bg-slate-950/95 backdrop-blur-md shadow-2xl p-1.5 flex flex-col gap-1">
-                    <div className="px-2.5 py-1 text-[10px] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                      Choose Language
+                  <div className="absolute left-0 sm:right-auto top-full mt-2.5 z-[10000] w-52 rounded-xl border-2 border-emerald-500 bg-[#0c1f15] shadow-[0_16px_50px_rgba(0,0,0,0.95)] p-2 flex flex-col gap-1 animate-in fade-in zoom-in-95">
+                    <div className="px-3 py-1.5 text-[11px] text-emerald-300 font-extrabold uppercase tracking-wider border-b border-emerald-900/70">
+                      Select Language
                     </div>
                     {(Object.keys(LANG_META) as Lang[]).map(l => (
                       <button
                         key={l}
                         type="button"
                         onClick={() => { setLang(l); setShowLangMenu(false); }}
-                        className={`w-full text-left px-3 py-2 text-xs rounded-lg transition flex items-center justify-between ${
+                        className={`w-full text-left px-3 py-2 text-xs rounded-lg transition flex items-center justify-between cursor-pointer ${
                           lang === l
-                            ? 'bg-emerald-950 text-emerald-300 font-bold border border-emerald-800/60'
-                            : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                            ? 'bg-emerald-800/80 text-white font-bold border border-emerald-400'
+                            : 'text-slate-200 hover:bg-emerald-950/80 hover:text-emerald-200 border border-transparent'
                         }`}
                       >
-                        <span className="flex items-center gap-2">
-                          <span>{LANG_META[l].flag}</span>
-                          <span>{LANG_META[l].label}</span>
+                        <span className="flex items-center gap-2.5 text-xs">
+                          <span className="text-base">{LANG_META[l].flag}</span>
+                          <span className="font-bold">{LANG_META[l].label}</span>
                         </span>
-                        {lang === l && <Check className="h-3.5 w-3.5 text-emerald-400" />}
+                        {lang === l && <Check className="h-4 w-4 text-emerald-300 font-bold" />}
                       </button>
                     ))}
                   </div>
@@ -252,22 +269,22 @@ export default function App() {
                 type="button"
                 onClick={handleFetchGps}
                 title="Click to detect GPS location or enter custom coordinates"
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition font-medium shadow-md ${
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs rounded-lg border-2 transition font-bold shadow-[0_4px_20px_rgba(0,0,0,0.5)] cursor-pointer ${
                   gpsStatus === 'locating'
-                    ? 'bg-sky-950/80 border-sky-600 text-sky-300'
+                    ? 'bg-sky-950 border-sky-400 text-sky-200 animate-pulse'
                     : gpsStatus === 'success'
-                    ? 'bg-emerald-950/80 border-emerald-600 text-emerald-300'
-                    : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:text-emerald-400 hover:border-slate-500'
+                    ? 'bg-emerald-900 border-emerald-400 text-emerald-200'
+                    : 'bg-[#0d2217] border-emerald-500/80 text-emerald-200 hover:text-white hover:bg-emerald-900/90'
                 }`}
               >
                 {gpsStatus === 'locating' ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
                 ) : (
-                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                  <MapPin className="w-4 h-4 text-emerald-400" />
                 )}
                 <span>
                   {gpsStatus === 'locating'
-                    ? 'Locating…'
+                    ? 'Detecting GPS…'
                     : gpsLocation
                     ? `${gpsLocation.lat.toFixed(2)}°, ${gpsLocation.lng.toFixed(2)}°`
                     : 'Get GPS'}
@@ -277,50 +294,123 @@ export default function App() {
               {/* 🎙️ 4. VOICE COMMAND BUTTON */}
               <button
                 type="button"
-                onClick={toggleVoice}
-                title={
-                  voiceError ||
-                  (isListening
-                    ? 'Listening… Speak your command now'
-                    : `Voice Commands: Say 'Dashboard', 'Weather', 'Live', 'Treatment' (${LANG_META[lang].label})`)
-                }
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition font-medium shadow-md ${
+                onClick={handleVoiceButtonClick}
+                title="Click to speak agricultural commands"
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs rounded-lg border-2 transition font-bold shadow-[0_4px_20px_rgba(0,0,0,0.5)] cursor-pointer ${
                   isListening
-                    ? 'bg-red-950/90 border-red-600 text-red-300 animate-pulse ring-2 ring-red-500/40'
-                    : voiceError
-                    ? 'bg-slate-900/60 border-slate-800 text-slate-500'
-                    : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:text-emerald-400 hover:border-slate-500'
+                    ? 'bg-red-950 border-red-500 text-red-200 animate-pulse ring-4 ring-red-500/40'
+                    : 'bg-[#0d2217] border-emerald-500/80 text-emerald-200 hover:text-white hover:bg-emerald-900/90'
                 }`}
               >
                 {isListening ? (
-                  <MicOff className="w-3.5 h-3.5 text-red-400 animate-bounce" />
+                  <MicOff className="w-4 h-4 text-red-400 animate-bounce" />
                 ) : (
-                  <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                  <Mic className="w-4 h-4 text-emerald-400" />
                 )}
-                <span>{isListening ? 'Listening…' : 'Voice'}</span>
+                <span>{isListening ? 'Listening…' : 'Speak / Voice'}</span>
               </button>
             </div>
           </div>
-
-          {/* VOICE FEEDBACK OR ACTIVE STATUS TOAST */}
-          {(voiceFeedback || isListening) && (
-            <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-950/80 border border-emerald-700/60 text-xs text-emerald-300 shadow-lg">
-              <Mic className="h-3.5 w-3.5 animate-pulse text-emerald-400" />
-              <span>{isListening ? `${t('voiceReady')} (${LANG_META[lang].label})` : voiceFeedback}</span>
-            </div>
-          )}
         </div>
       </header>
 
+      {/* ── VOICE ASSISTANT MODAL (High-Contrast, Interactive) ─────────────────── */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 z-[10005] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl border-2 border-emerald-500 bg-[#0a1b12] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-emerald-900/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-xl ${isListening ? 'bg-red-950 border border-red-600' : 'bg-emerald-950 border border-emerald-600'}`}>
+                  <Mic className={`h-5 w-5 ${isListening ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">AI Voice Assistant</h3>
+                  <p className="text-[11px] text-emerald-400">{LANG_META[lang].flag} Language: {LANG_META[lang].label}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVoiceModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Listening status indicator */}
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-emerald-900/50 text-center space-y-2">
+              <p className="text-xs font-semibold text-emerald-300">
+                {isListening ? '🎙️ Listening... Speak your field command now' : 'Mic is idle. Click below to start speaking:'}
+              </p>
+              {voiceFeedback && (
+                <p className="text-sm font-bold text-white bg-emerald-950/90 py-2 px-3 rounded-lg border border-emerald-700">
+                  {voiceFeedback}
+                </p>
+              )}
+              {voiceError && (
+                <p className="text-xs text-amber-400">
+                  ⚠️ {voiceError} (Ensure microphone permissions are allowed)
+                </p>
+              )}
+            </div>
+
+            {/* Suggested commands you can speak or tap */}
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                Speak or Tap Any Command:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {VOICE_COMMAND_EXAMPLES.map((cmd) => (
+                  <button
+                    key={cmd.tab}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(cmd.tab);
+                      setShowVoiceModal(false);
+                    }}
+                    className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 hover:bg-emerald-900 text-left text-xs text-emerald-200 font-semibold transition flex items-center justify-between"
+                  >
+                    <span>{cmd.text}</span>
+                    <span className="text-[10px] text-emerald-400">➔</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-emerald-900/60">
+              <button
+                type="button"
+                onClick={toggleVoice}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+                  isListening
+                    ? 'bg-red-900 hover:bg-red-800 text-white'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                }`}
+              >
+                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                {isListening ? 'Stop Listening' : 'Start Microphone'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowVoiceModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── MAIN APPLICATION CONTENT ────────────────────────────────────────── */}
-      <div className="mx-auto max-w-7xl px-4 py-6">
+      <div className="mx-auto max-w-7xl px-4 py-6 relative z-10">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
 
           {/* TAB BAR — Scrollable on mobile screens */}
           <div className="overflow-x-auto pb-1 mb-5 scrollbar-thin">
             <TabsList className="inline-flex flex-nowrap gap-0.5 bg-panel border border-border p-1.5 rounded-xl min-w-max">
               {TABS.map(tab => (
-                <TabsTrigger key={tab.value} value={tab.value} className="text-xs px-3 py-1.5 whitespace-nowrap">
+                <TabsTrigger key={tab.value} value={tab.value} className="text-xs px-3 py-1.5 whitespace-nowrap font-medium">
                   {tab.label}
                 </TabsTrigger>
               ))}
