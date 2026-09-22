@@ -1,77 +1,191 @@
 import { useState, useCallback, useRef } from 'react';
+import type { Lang } from '@/i18n/translations';
 
 type VoiceCallback = (transcript: string, tab: string | null) => void;
 
-const TAB_COMMANDS: { patterns: string[]; tab: string; tamilPatterns?: string[] }[] = [
-  { patterns: ['live monitor', 'camera', 'webcam', 'live feed'], tab: 'live', tamilPatterns: ['நேரடி', 'கேமரா'] },
-  { patterns: ['field video', 'video'], tab: 'video', tamilPatterns: ['வீடியோ'] },
-  { patterns: ['image analysis', 'image', 'photo', 'scan photo'], tab: 'image', tamilPatterns: ['படம்', 'புகைப்படம்'] },
-  { patterns: ['before after', 'comparison', 'compare'], tab: 'compare', tamilPatterns: ['ஒப்பீடு', 'முன் பின்'] },
-  { patterns: ['dashboard', 'analytics', 'charts'], tab: 'dashboard', tamilPatterns: ['டாஷ்போர்டு'] },
-  { patterns: ['fieldbot', 'assistant', 'chat', 'treatment advice', 'give treatment'], tab: 'assistant', tamilPatterns: ['உதவி', 'சிகிச்சை'] },
-  { patterns: ['report', 'export', 'download'], tab: 'report', tamilPatterns: ['அறிக்கை'] },
-  { patterns: ['profile', 'history', 'my profile'], tab: 'profile', tamilPatterns: ['சுயவிவரம்', 'வரலாறு'] },
-  { patterns: ['weather', 'forecast', 'rain', 'climate'], tab: 'weather', tamilPatterns: ['வானிலை'] },
-  { patterns: ['admin', 'administration'], tab: 'admin', tamilPatterns: ['நிர்வாகி'] },
-  { patterns: ['check my field', 'என் வயல்', 'வயல் நிலவரம்'], tab: 'dashboard' },
+const TAB_COMMANDS: { patterns: string[]; tab: string }[] = [
+  {
+    patterns: [
+      'live monitor', 'camera', 'webcam', 'live feed', 'live',
+      'நேரடி', 'கேமரா', 'நேரடி கண்காணிப்பு',
+      'लाइव', 'कैमरा', 'मॉनिटर',
+      'లైవ్', 'కెమెరా',
+      'ಲೈವ್', 'ಕ್ಯಾಮೆರಾ',
+    ],
+    tab: 'live',
+  },
+  {
+    patterns: [
+      'field video', 'video',
+      'வீடியோ', 'வயல் வீடியோ',
+      'वीडियो',
+      'వీడియో',
+      'ವೀಡಿಯೊ',
+    ],
+    tab: 'video',
+  },
+  {
+    patterns: [
+      'image analysis', 'image', 'photo', 'scan photo', 'scan',
+      'படம்', 'புகைப்படம்', 'ஸ்கேன்',
+      'फोटो', 'छवि', 'स्कैन',
+      'ఫోటో', 'స్కాన్',
+      'ಫೋಟೋ', 'ಸ್ಕ್ಯಾನ್',
+    ],
+    tab: 'image',
+  },
+  {
+    patterns: [
+      'before after', 'comparison', 'compare',
+      'ஒப்பீடு', 'முன் பின்',
+      'तुलना', 'पहले बाद',
+      'పోలిక',
+      'ಹೋಲಿಕೆ',
+    ],
+    tab: 'compare',
+  },
+  {
+    patterns: [
+      'weather', 'forecast', 'rain', 'climate',
+      'வானிலை', 'மழை',
+      'मौसम', 'बारिश',
+      'వాతావరణం',
+      'ಹವಾಮಾನ',
+    ],
+    tab: 'weather',
+  },
+  {
+    patterns: [
+      'dashboard', 'analytics', 'charts', 'check my field',
+      'டாஷ்போர்டு', 'என் வயல்', 'வயல் நிலவரம்',
+      'डैशबोर्ड', 'खेत',
+      'డాష్‌బోర్డ్',
+      'ಡ್ಯಾಶ್‌ಬೋರ್ಡ್',
+    ],
+    tab: 'dashboard',
+  },
+  {
+    patterns: [
+      'fieldbot', 'assistant', 'chat', 'treatment advice', 'give treatment', 'bot', 'help',
+      'உதவி', 'சிகிச்சை', 'மருந்து', 'சாட்',
+      'सहायक', 'उपचार', 'दवा',
+      'సహాయం', 'చికిత్స',
+      'ಸಹಾಯ', 'ಚಿಕಿತ್ಸೆ',
+    ],
+    tab: 'assistant',
+  },
+  {
+    patterns: [
+      'profile', 'history', 'my profile', 'my fields',
+      'சுயவிவரம்', 'வரலாறு', 'என் சுயவிவரம்',
+      'प्रोफ़ाइल', 'इतिहास',
+      'ప్రొఫైల్', 'చరిత్ర',
+      'ಪ್ರೊಫೈಲ್', 'ಇತಿಹಾಸ',
+    ],
+    tab: 'profile',
+  },
+  {
+    patterns: [
+      'admin', 'administration',
+      'நிர்வாகி',
+      'व्यवस्थापक',
+      'నిర్వాహకుడు',
+      'ನಿರ್ವಾಹಕ',
+    ],
+    tab: 'admin',
+  },
+  {
+    patterns: [
+      'report', 'export', 'download',
+      'அறிக்கை', 'பதிவிறக்கம்',
+      'रिपोर्ट',
+      'నివేదిక',
+      'ವರದಿ',
+    ],
+    tab: 'report',
+  },
 ];
 
+const LANG_BCP47: Record<Lang, string> = {
+  en: 'en-US',
+  ta: 'ta-IN',
+  hi: 'hi-IN',
+  te: 'te-IN',
+  kn: 'kn-IN',
+};
+
 function detectTabFromTranscript(text: string): string | null {
-  const lower = text.toLowerCase();
+  const lower = text.toLowerCase().trim();
   for (const cmd of TAB_COMMANDS) {
-    const allPatterns = [...cmd.patterns, ...(cmd.tamilPatterns ?? [])];
-    if (allPatterns.some(p => lower.includes(p.toLowerCase()))) {
-      return cmd.tab;
+    for (const pattern of cmd.patterns) {
+      if (lower.includes(pattern.toLowerCase())) {
+        return cmd.tab;
+      }
     }
   }
   return null;
 }
 
-export function useVoiceCommand(onCommand: VoiceCallback) {
+export function useVoiceCommand(lang: Lang, onCommand: VoiceCallback) {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const startListening = useCallback(() => {
-    const SpeechRecognition = window.SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError('Voice recognition not supported in this browser. Use Chrome.');
+      setError('Voice recognition is not supported in this browser. Please use Google Chrome.');
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ta-IN'; // Tamil + English fallback
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 3;
-    recognitionRef.current = recognition;
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = LANG_BCP47[lang] || 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 3;
+      recognitionRef.current = recognition;
 
-    recognition.onstart = () => {
-      setIsListening(true);
-      setError(null);
-    };
+      recognition.onstart = () => {
+        setIsListening(true);
+        setError(null);
+      };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const best = Array.from(event.results[0] ?? [])
-        .map(r => r.transcript)
-        .join(' ');
-      setTranscript(best);
-      const tab = detectTabFromTranscript(best);
-      onCommand(best, tab);
-    };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        const best = Array.from(event.results[0] || [])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((r: any) => r.transcript)
+          .join(' ');
+        setTranscript(best);
+        const tab = detectTabFromTranscript(best);
+        onCommand(best, tab);
+      };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      setError(`Voice error: ${event.error}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onerror = (event: any) => {
+        if (event.error !== 'no-speech') {
+          setError(`Voice: ${event.error}`);
+        }
+        setIsListening(false);
+      };
+
+      recognition.onend = () => setIsListening(false);
+
+      recognition.start();
+    } catch (err) {
+      setError('Unable to start microphone.');
       setIsListening(false);
-    };
-
-    recognition.onend = () => setIsListening(false);
-
-    recognition.start();
-  }, [onCommand]);
+    }
+  }, [lang, onCommand]);
 
   const stopListening = useCallback(() => {
-    recognitionRef.current?.stop();
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
     setIsListening(false);
   }, []);
 

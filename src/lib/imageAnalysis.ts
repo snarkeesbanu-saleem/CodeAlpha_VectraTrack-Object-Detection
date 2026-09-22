@@ -2,7 +2,7 @@
 import { AgriClassMapper, type Track } from "./agri";
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
-const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)] as T;
+const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)] as T;
 
 export interface ImageQualityResult {
   isGood: boolean;
@@ -80,29 +80,35 @@ export function analyzeImage(
   }
 
   const cropCount =
-    bias === "pests" ? Math.round(rand(1, 3)) : bias === "diseases" ? Math.round(rand(3, 6)) : Math.round(rand(5, 10));
+    bias === "pests" ? Math.round(rand(1, 3)) : bias === "diseases" ? Math.round(rand(3, 5)) : Math.round(rand(5, 8));
   const pestCount =
-    bias === "crops" ? Math.round(rand(0, 1)) : bias === "diseases" ? Math.round(rand(1, 3)) : Math.round(rand(3, 7));
+    bias === "crops" ? 0 : bias === "diseases" ? Math.round(rand(0, 2)) : Math.round(rand(3, 6));
   const diseaseCount =
-    bias === "diseases" ? Math.round(rand(3, 6)) : bias === "pests" ? Math.round(rand(0, 2)) : Math.round(rand(1, 3));
+    bias === "crops" ? 0 : bias === "diseases" ? Math.round(rand(3, 6)) : Math.round(rand(1, 3));
 
   const detections: Track[] = [];
   let id = 1;
   const make = (category: "crop" | "pest" | "disease") => {
     const isCrop = category === "crop";
     const isDisease = category === "disease";
-    const size = isCrop ? rand(0.12, 0.18) * width : isDisease ? rand(0.08, 0.12) * width : rand(0.06, 0.1) * width;
+    const size = isCrop ? rand(0.14, 0.22) * width : isDisease ? rand(0.09, 0.14) * width : rand(0.06, 0.1) * width;
     const conf = rand(minConf, 0.98);
+
+    const cls = isCrop
+      ? pick(AgriClassMapper.crops)
+      : isDisease
+      ? pick(AgriClassMapper.diseases)
+      : pick(AgriClassMapper.pests);
+
+    const mapping = AgriClassMapper.map(cls);
 
     // Box size filter enforcement (minimum 1200 px² area)
     if (size * size >= 1200) {
       detections.push({
         id: id++,
-        cocoClass: isCrop
-          ? pick(AgriClassMapper.crops)
-          : isDisease
-          ? pick(AgriClassMapper.diseases)
-          : pick(AgriClassMapper.pests),
+        cocoClass: cls,
+        displayName: mapping.displayName,
+        emoji: mapping.emoji,
         category,
         conf,
         cx: rand(size, width - size),
@@ -124,9 +130,9 @@ export function analyzeImage(
   const avgConf = detections.reduce((s, d) => s + d.conf, 0) / (detections.length || 1);
   return {
     detections,
-    crops: cropCount,
-    pests: pestCount,
-    diseases: diseaseCount,
+    crops: detections.filter(d => d.category === "crop").length,
+    pests: detections.filter(d => d.category === "pest").length,
+    diseases: detections.filter(d => d.category === "disease").length,
     avgConf,
     durationMs: Math.round(performance.now() - start + rand(25, 65)),
     quality: { isGood: true, brightness: 135, blurScore: 88, statusText: "🟢 High Precision Scan", badgeColor: "#16a34a" },

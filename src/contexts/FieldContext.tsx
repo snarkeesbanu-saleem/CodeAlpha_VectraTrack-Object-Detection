@@ -83,8 +83,8 @@ export function FieldProvider({ children }: { children: ReactNode }) {
         const defaultField: Field = {
           id: 'default',
           name: 'Main Farm Field',
-          cropType: 'Broccoli / Paddy',
-          location: 'Chennai, TN',
+          cropType: 'Paddy / Rice',
+          location: 'Thanjavur, TN',
           createdAt: new Date().toISOString(),
         };
         await db.put('fields', defaultField);

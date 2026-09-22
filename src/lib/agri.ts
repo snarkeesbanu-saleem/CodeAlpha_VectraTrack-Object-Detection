@@ -1,64 +1,79 @@
 // VectraTrack Agriculture — class mapping, tracking simulation, alerts.
+import {
+  CROP_CLASSES,
+  PEST_CLASSES,
+  DISEASE_CLASSES,
+  CROP_DISPLAY,
+  PEST_DISPLAY,
+  DISEASE_DISPLAY,
+} from "@/agriMapper";
 
 export type AgriCategory = "crop" | "pest" | "disease" | "ignored";
-
-const CROP_CLASSES = [
-  "potted plant",
-  "broccoli",
-  "carrot",
-  "apple",
-  "orange",
-  "crop row",
-  "maize",
-];
-
-const PEST_CLASSES = [
-  "aphid",
-  "beetle",
-  "caterpillar",
-  "mite",
-  "moth",
-  "armyworm",
-  "whitefly",
-  "grasshopper",
-  "bird",
-  "mouse",
-];
-
-const DISEASE_CLASSES = [
-  "leaf blight",
-  "leaf spot",
-  "powdery mildew",
-  "rust",
-  "yellowing",
-];
 
 export interface AgriMapping {
   category: AgriCategory;
   label: string;
+  displayName: string;
+  emoji: string;
   color: string;
 }
 
-/** AgriClassMapper — maps COCO / Custom class names to agriculture categories. */
+/** AgriClassMapper — maps class names to agriculture categories with friendly display names. */
 export const AgriClassMapper = {
   crops: CROP_CLASSES,
   pests: PEST_CLASSES,
   diseases: DISEASE_CLASSES,
-  map(cocoClass: string): AgriMapping {
+  map(cocoClass: string, lang: 'en' | 'ta' = 'en'): AgriMapping {
     const cls = cocoClass.toLowerCase().trim();
-    if (CROP_CLASSES.includes(cls))
-      return { category: "crop", label: "Crop", color: "var(--crop)" };
-    if (PEST_CLASSES.includes(cls))
-      return { category: "pest", label: "Pest", color: "var(--pest)" };
-    if (DISEASE_CLASSES.includes(cls))
-      return { category: "disease", label: "Disease", color: "#f43f5e" };
-    return { category: "ignored", label: "Ignored", color: "var(--muted-foreground)" };
+
+    if (cls in CROP_DISPLAY) {
+      const info = CROP_DISPLAY[cls]!;
+      return {
+        category: "crop",
+        label: "Crop",
+        displayName: lang === 'ta' ? info.ta : info.en,
+        emoji: info.emoji,
+        color: "var(--crop)",
+      };
+    }
+
+    if (cls in PEST_DISPLAY) {
+      const info = PEST_DISPLAY[cls]!;
+      return {
+        category: "pest",
+        label: "Pest",
+        displayName: lang === 'ta' ? info.ta : info.en,
+        emoji: info.emoji,
+        color: "var(--pest)",
+      };
+    }
+
+    if (cls in DISEASE_DISPLAY) {
+      const info = DISEASE_DISPLAY[cls]!;
+      return {
+        category: "disease",
+        label: "Disease",
+        displayName: lang === 'ta' ? info.ta : info.en,
+        emoji: info.emoji,
+        color: "#f43f5e",
+      };
+    }
+
+    return {
+      category: "ignored",
+      label: "Ignored",
+      displayName: cls,
+      emoji: "⬛",
+      color: "var(--muted-foreground)",
+    };
   },
 };
 
 export interface Track {
   id: number;
   cocoClass: string;
+  displayName: string;
+  emoji: string;
   category: "crop" | "pest" | "disease";
   conf: number;
   cx: number;
@@ -92,6 +107,7 @@ export interface CsvRow {
   track_id: number;
   agri_class: string;
   coco_class: string;
+  display_name: string;
   conf: number;
   cx: number;
   cy: number;
@@ -100,7 +116,7 @@ export interface CsvRow {
 }
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
-const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)] as T;
+const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)] as T;
 
 /**
  * CustomSortTracker (simulation) — Kalman-style constant velocity update with
@@ -121,7 +137,7 @@ export class CustomSortTracker {
     this.height = height;
   }
 
-  seed(cropCount = 8, pestCount = 3, diseaseCount = 2) {
+  seed(cropCount = 7, pestCount = 3, diseaseCount = 2) {
     this.tracks = [];
     this.nextId = 1;
     this.frame = 0;
@@ -134,9 +150,19 @@ export class CustomSortTracker {
     const isCrop = category === "crop";
     const isDisease = category === "disease";
     const size = isCrop ? rand(90, 150) : isDisease ? rand(60, 100) : rand(48, 80);
+    const cls = isCrop
+      ? pick(CROP_CLASSES)
+      : isDisease
+      ? pick(DISEASE_CLASSES)
+      : pick(PEST_CLASSES);
+
+    const mapping = AgriClassMapper.map(cls);
+
     const track: Track = {
       id: this.nextId++,
-      cocoClass: isCrop ? pick(CROP_CLASSES) : isDisease ? pick(DISEASE_CLASSES) : pick(PEST_CLASSES),
+      cocoClass: cls,
+      displayName: mapping.displayName,
+      emoji: mapping.emoji,
       category,
       conf: rand(0.65, 0.96),
       cx: rand(size, this.width - size),
@@ -233,7 +259,7 @@ export class PestAlertEngine {
 }
 
 export function toCsv(rows: CsvRow[]): string {
-  const header = "frame,track_id,agri_class,coco_class,conf,cx,cy,speed,alert";
+  const header = "frame,track_id,agri_class,coco_class,display_name,conf,cx,cy,speed,alert";
   const body = rows
     .map((r) =>
       [
@@ -241,6 +267,7 @@ export function toCsv(rows: CsvRow[]): string {
         r.track_id,
         r.agri_class,
         r.coco_class,
+        r.display_name,
         r.conf.toFixed(2),
         Math.round(r.cx),
         Math.round(r.cy),

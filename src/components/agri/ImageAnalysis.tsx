@@ -20,10 +20,10 @@ const W = 960;
 const H = 540;
 
 const SAMPLES = [
-  { src: cropRows, label: "Healthy Crops (Broccoli)", bias: "crops" as const },
-  { src: pestInvasion, label: "Pest Outbreak (Aphids/Mites)", bias: "pests" as const },
-  { src: orchard, label: "Leaf Blight & Disease Spot", bias: "diseases" as const },
-  { src: fieldPlot, label: "Blank Field / No Crops", bias: "none" as const },
+  { src: cropRows, label: "Healthy Crop Rows (Paddy / Rice)", bias: "crops" as const },
+  { src: pestInvasion, label: "Pest Infestation (Aphids / Armyworms)", bias: "pests" as const },
+  { src: orchard, label: "Fungal Outbreak (Leaf Blight / Spot)", bias: "diseases" as const },
+  { src: fieldPlot, label: "Bare Field / Soil Plot (Empty State)", bias: "none" as const },
 ];
 
 export function ImageAnalysis({ threshold }: { threshold: number }) {

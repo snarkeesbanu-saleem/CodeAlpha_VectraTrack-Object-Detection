@@ -90,7 +90,9 @@ export function drawHud(
     bracket(ctx, x, y, t.w, t.h, color);
 
     const categoryName = isDisease ? "Disease" : isPest ? "Pest" : "Crop";
-    const label = `#${t.id} ${categoryName} [${t.cocoClass}]`;
+    const emoji = (t as { emoji?: string }).emoji ?? (isDisease ? "🍂" : isPest ? "🐛" : "🌱");
+    const displayName = (t as { displayName?: string }).displayName ?? t.cocoClass;
+    const label = `#${t.id} ${emoji} ${categoryName}: ${displayName}`;
     ctx.font = "12px 'Share Tech Mono', monospace";
     const tw = ctx.measureText(label).width + 12;
     ctx.fillStyle = "rgba(2, 12, 6, 0.85)";
@@ -102,6 +104,7 @@ export function drawHud(
     ctx.fillStyle = "rgba(255,255,255,0.75)";
     ctx.font = "10px 'Share Tech Mono', monospace";
     ctx.fillText(`${(t.conf * 100).toFixed(0)}%`, x + t.w - 28, y + t.h + 12);
+
   }
 }
 
