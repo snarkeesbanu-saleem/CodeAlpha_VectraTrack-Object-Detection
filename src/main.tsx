@@ -2,6 +2,8 @@ import React, { StrictMode, Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { FieldProvider } from './contexts/FieldContext.tsx';
+import { TranslationProvider } from './i18n/TranslationContext.tsx';
 
 interface Props {
   children?: ReactNode;
@@ -49,7 +51,11 @@ class ErrorBoundary extends Component<Props, State> {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <TranslationProvider>
+        <FieldProvider>
+          <App />
+        </FieldProvider>
+      </TranslationProvider>
     </ErrorBoundary>
   </StrictMode>,
 );
