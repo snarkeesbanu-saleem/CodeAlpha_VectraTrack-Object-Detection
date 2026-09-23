@@ -1,4 +1,3 @@
-// VectraTrack Agriculture — class mapping, tracking simulation, alerts.
 import {
   CROP_CLASSES,
   PEST_CLASSES,
@@ -7,6 +6,7 @@ import {
   PEST_DISPLAY,
   DISEASE_DISPLAY,
 } from "@/agriMapper";
+import { ByteTracker, type ByteDetection, type STrack } from "./tracker/byteTrack";
 
 export type AgriCategory = "crop" | "pest" | "disease" | "ignored";
 
@@ -123,14 +123,22 @@ const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.le
  * ByteTrack-inspired two-stage association.
  */
 export class CustomSortTracker {
-  private nextId = 1;
-  private tracks: Track[] = [];
+  private byteTracker: ByteTracker;
+  private rawItems: Track[] = [];
   frame = 0;
 
   constructor(
     private width = 960,
     private height = 540,
-  ) {}
+  ) {
+    this.byteTracker = new ByteTracker({
+      highScoreThresh: 0.60,
+      lowScoreThresh: 0.25,
+      matchThresh: 0.40,
+      secondMatchThresh: 0.25,
+      maxLostFrames: 30,
+    });
+  }
 
   resize(width: number, height: number) {
     this.width = width;
@@ -138,15 +146,15 @@ export class CustomSortTracker {
   }
 
   seed(cropCount = 7, pestCount = 3, diseaseCount = 2) {
-    this.tracks = [];
-    this.nextId = 1;
+    this.rawItems = [];
+    this.byteTracker.reset();
     this.frame = 0;
     for (let i = 0; i < cropCount; i++) this.spawn("crop");
     for (let i = 0; i < pestCount; i++) this.spawn("pest");
     for (let i = 0; i < diseaseCount; i++) this.spawn("disease");
   }
 
-  spawn(category: "crop" | "pest" | "disease") {
+  spawn(category: "crop" | "pest" | "disease"): Track {
     const isCrop = category === "crop";
     const isDisease = category === "disease";
     const size = isCrop ? rand(90, 150) : isDisease ? rand(60, 100) : rand(48, 80);
@@ -159,7 +167,7 @@ export class CustomSortTracker {
     const mapping = AgriClassMapper.map(cls);
 
     const track: Track = {
-      id: this.nextId++,
+      id: 0,
       cocoClass: cls,
       displayName: mapping.displayName,
       emoji: mapping.emoji,
@@ -174,29 +182,31 @@ export class CustomSortTracker {
       speed: 0,
       trail: [],
     };
-    this.tracks.push(track);
+    this.rawItems.push(track);
     return track;
   }
 
   removePest() {
-    const idx = this.tracks.findIndex((t) => t.category === "pest");
-    if (idx >= 0) this.tracks.splice(idx, 1);
+    const idx = this.rawItems.findIndex((t) => t.category === "pest");
+    if (idx >= 0) this.rawItems.splice(idx, 1);
   }
 
   get pestCount() {
-    return this.tracks.filter((t) => t.category === "pest").length;
+    return this.rawItems.filter((t) => t.category === "pest").length;
   }
 
   get diseaseCount() {
-    return this.tracks.filter((t) => t.category === "disease").length;
+    return this.rawItems.filter((t) => t.category === "disease").length;
   }
 
   step(): FrameResult {
     this.frame++;
-    for (const t of this.tracks) {
+
+    // Motion updates for simulation targets
+    for (const t of this.rawItems) {
       if (t.category === "pest") {
-        t.vx += rand(-0.35, 0.35);
-        t.vy += rand(-0.3, 0.3);
+        t.vx += rand(-0.4, 0.4);
+        t.vy += rand(-0.35, 0.35);
         t.vx = Math.max(-6, Math.min(6, t.vx));
         t.vy = Math.max(-5, Math.min(5, t.vy));
         t.cx += t.vx;
@@ -205,25 +215,62 @@ export class CustomSortTracker {
         if (t.cy < t.h / 2 || t.cy > this.height - t.h / 2) t.vy *= -1;
         t.cx = Math.max(t.w / 2, Math.min(this.width - t.w / 2, t.cx));
         t.cy = Math.max(t.h / 2, Math.min(this.height - t.h / 2, t.cy));
-        t.speed = Math.hypot(t.vx, t.vy);
-        t.trail.push({ x: t.cx, y: t.cy });
-        if (t.trail.length > 42) t.trail.shift();
-      } else {
-        t.speed = 0;
       }
-      t.conf = Math.max(0.58, Math.min(0.99, t.conf + rand(-0.02, 0.02)));
+      // Natural confidence fluctuations (testing ByteTrack low-score recovery)
+      t.conf = Math.max(0.28, Math.min(0.98, t.conf + rand(-0.04, 0.04)));
     }
-    const cropCount = this.tracks.filter((t) => t.category === "crop").length;
+
+    // Convert raw frame targets into ByteDetections
+    const detections: ByteDetection[] = this.rawItems.map((item) => ({
+      bbox: {
+        x: item.cx - item.w / 2,
+        y: item.cy - item.h / 2,
+        w: item.w,
+        h: item.h,
+      },
+      score: item.conf,
+      cocoClass: item.cocoClass,
+      displayName: item.displayName,
+      emoji: item.emoji,
+      category: item.category,
+    }));
+
+    // Pass through ByteTrack two-stage data association engine
+    const activeStracks = this.byteTracker.update(detections);
+
+    // Convert STracks back to Track objects
+    const tracks: Track[] = activeStracks.map((st) => ({
+      id: st.id,
+      cocoClass: st.cocoClass,
+      displayName: st.displayName,
+      emoji: st.emoji,
+      category: st.category,
+      conf: st.score,
+      cx: st.cx,
+      cy: st.cy,
+      w: st.kState.w,
+      h: st.kState.h,
+      vx: st.kState.vx,
+      vy: st.kState.vy,
+      speed: st.speed,
+      trail: [...st.trail],
+    }));
+
+    const cropCount = tracks.filter((t) => t.category === "crop").length;
+    const pestCount = tracks.filter((t) => t.category === "pest").length;
+    const diseaseCount = tracks.filter((t) => t.category === "disease").length;
+
     return {
       frame: this.frame,
-      tracks: this.tracks.map((t) => ({ ...t, trail: [...t.trail] })),
+      tracks,
       cropCount,
-      pestCount: this.pestCount,
-      diseaseCount: this.diseaseCount,
+      pestCount,
+      diseaseCount,
       alert: false,
     };
   }
 }
+
 
 /** PestAlertEngine — raises a warning when live pest count crosses threshold. */
 export class PestAlertEngine {

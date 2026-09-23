@@ -1,4 +1,5 @@
 import type { Track } from "./agri";
+import { computeDensityGrid, drawDensityGridOverlay } from "./densityGrid";
 
 const CROP = "#22c55e";
 const PEST = "#f59e0b";
@@ -40,9 +41,21 @@ function bracket(
 export function drawHud(
   ctx: CanvasRenderingContext2D,
   tracks: Track[],
-  opts: { alert: boolean; showTrajectory: boolean; width: number; height: number },
+  opts: {
+    alert: boolean;
+    showTrajectory: boolean;
+    width: number;
+    height: number;
+    showDensityGrid?: boolean;
+  },
 ) {
   ctx.clearRect(0, 0, opts.width, opts.height);
+
+  // Optional Density Grid Overlay
+  if (opts.showDensityGrid) {
+    const gridResult = computeDensityGrid(tracks, opts.width, opts.height);
+    drawDensityGridOverlay(ctx, gridResult);
+  }
 
   // Empty State overlay when 0 tracks pass confidence & size thresholds
   if (!tracks || tracks.length === 0) {

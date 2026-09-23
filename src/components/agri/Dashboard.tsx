@@ -16,6 +16,8 @@ import { drawHeatmap } from "@/lib/hud";
 import type { TrackingState } from "./useTracking";
 import { StatCards } from "./StatCards";
 import { calculateSeverity, calculateYieldRisk } from "@/agriMapper";
+import { predictPestTrajectory, type TimeStepData } from "@/lib/neuralForecast";
+import { Brain, Cpu, TrendingUp, AlertTriangle } from "lucide-react";
 
 const tooltipStyle = {
   background: "#0f172a",
@@ -74,6 +76,30 @@ export function Dashboard({ state }: { state: TrackingState }) {
   const severity = calculateSeverity(state.counts.pests, 2, state.counts.crops);
   const yieldRisk = calculateYieldRisk(state.counts.pests, 2, state.counts.crops);
 
+  // Neural Autoregressive Forecast (Transformer / LSTM)
+  const forecast = useMemo(() => {
+    const history: TimeStepData[] =
+      state.series.length >= 6
+        ? state.series.slice(-12).map((s, idx) => ({
+            timeIndex: idx + 1,
+            pestCount: s.pests,
+            diseaseCount: 1,
+            cropCount: s.crops,
+            hotspotCount: s.pests >= 3 ? 1 : 0,
+            humidity: 78,
+          }))
+        : HISTORICAL_7_DAYS.map((h, idx) => ({
+            timeIndex: idx + 1,
+            pestCount: h.pests,
+            diseaseCount: h.diseases,
+            cropCount: h.crops,
+            hotspotCount: h.pests >= 4 ? 1 : 0,
+            humidity: 75,
+          }));
+
+    return predictPestTrajectory(history, 7, "Day");
+  }, [state.series]);
+
   const kpis = [
     ["Frames processed", state.frame],
     ["Peak pest count", state.totals.maxPests],
@@ -94,6 +120,104 @@ export function Dashboard({ state }: { state: TrackingState }) {
         ))}
       </div>
 
+      {/* 🧠 NEURAL SEQUENCE OUTBREAK FORECASTER (TRANSFORMER / LSTM ATTENTION) */}
+      <div className="panel p-5 bg-slate-900/90 border-2 border-emerald-500/50 rounded-xl space-y-4 shadow-xl">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-900/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-emerald-950 border border-emerald-600 text-emerald-400">
+              <Brain className="h-5 w-5 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <span>AI Neural Pest Trajectory Predictor</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-mono">
+                  Transformer Attention / LSTM
+                </span>
+              </h3>
+              <p className="text-xs text-slate-300">
+                Multi-step forward projection with 95% confidence intervals and surge momentum analysis.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-3 py-1 rounded text-xs font-bold border ${
+                forecast.outbreakSurgePredicted
+                  ? "bg-red-950 text-red-300 border-red-700"
+                  : "bg-emerald-950 text-emerald-300 border-emerald-700"
+              }`}
+            >
+              {forecast.outbreakSurgePredicted ? "⚠️ Outbreak Surge Alert" : "🟢 Stable Population Trend"}
+            </span>
+          </div>
+        </div>
+
+        {/* Forecast Metrics Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+            <p className="text-[10px] text-slate-400 uppercase font-mono">Population Velocity (dV/dt)</p>
+            <p className="text-lg font-bold font-mono text-emerald-400 mt-1">
+              {forecast.velocityIndex > 0 ? `+${forecast.velocityIndex}` : forecast.velocityIndex} pests / interval
+            </p>
+          </div>
+          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+            <p className="text-[10px] text-slate-400 uppercase font-mono">Surge Acceleration</p>
+            <p className="text-lg font-bold font-mono text-amber-400 mt-1">
+              {forecast.accelerationIndex > 0 ? `+${forecast.accelerationIndex}` : forecast.accelerationIndex} d²V/dt²
+            </p>
+          </div>
+          <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+            <p className="text-[10px] text-slate-400 uppercase font-mono">Intervention Window</p>
+            <p className="text-xs font-semibold text-white mt-1.5">
+              {forecast.recommendedInterventionWindow}
+            </p>
+          </div>
+        </div>
+
+        {/* 7-Step Projection Curve Chart */}
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={forecast.projectedTrend}>
+              <defs>
+                <linearGradient id="forecastArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#1e293b" vertical={false} />
+              <XAxis dataKey="label" stroke="#64748b" fontSize={11} />
+              <YAxis stroke="#64748b" fontSize={11} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Area
+                type="monotone"
+                dataKey="upperConfidenceBound"
+                name="95% Upper Bound"
+                stroke="#64748b"
+                strokeDasharray="4 4"
+                fill="none"
+              />
+              <Area
+                type="monotone"
+                dataKey="projectedPests"
+                name="Projected Pests"
+                stroke="#10b981"
+                fill="url(#forecastArea)"
+                strokeWidth={2.5}
+              />
+              <Area
+                type="monotone"
+                dataKey="lowerConfidenceBound"
+                name="95% Lower Bound"
+                stroke="#64748b"
+                strokeDasharray="4 4"
+                fill="none"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {/* 7-DAY HISTORICAL TREND ANALYTICS CHART */}
       <div className="panel p-5 bg-slate-900/80 border border-slate-800 rounded-xl space-y-3">
         <div className="flex items-center justify-between">
@@ -101,6 +225,7 @@ export function Dashboard({ state }: { state: TrackingState }) {
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">
               📅 7-Day Historical Pest & Disease Trend
             </h3>
+
             <p className="text-xs text-slate-400 mt-0.5">
               Weekly pest outbreak, leaf disease progression, and health recovery curve.
             </p>
