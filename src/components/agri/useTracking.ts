@@ -19,8 +19,8 @@ export interface Series {
 const WIDTH = 960;
 const HEIGHT = 540;
 
-export function useTracking() {
-  const trackerRef = useRef(new CustomSortTracker(WIDTH, HEIGHT));
+export function useTracking(cropType = "paddy", lang: "en" | "ta" = "en") {
+  const trackerRef = useRef(new CustomSortTracker(WIDTH, HEIGHT, cropType, lang));
   const alertRef = useRef(new PestAlertEngine(5));
   const rowsRef = useRef<CsvRow[]>([]);
   const heatRef = useRef<{ x: number; y: number }[]>([]);
@@ -38,6 +38,11 @@ export function useTracking() {
     alertRef.current.threshold = threshold;
   }, [threshold]);
 
+  // Synchronize field crop and language with tracker
+  useEffect(() => {
+    trackerRef.current.setContext(cropType, lang);
+  }, [cropType, lang]);
+
   const reset = useCallback(() => {
     trackerRef.current.seed(9, 3);
     alertRef.current = new PestAlertEngine(threshold);
@@ -53,7 +58,7 @@ export function useTracking() {
     trackerRef.current.seed(9, 3);
     setFrameResult(trackerRef.current.step());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cropType, lang]);
 
   useEffect(() => {
     if (!running) return;

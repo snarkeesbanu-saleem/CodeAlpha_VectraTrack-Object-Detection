@@ -19,9 +19,9 @@ import heroImg from "./assets/field-hero.jpg";
 import { MapPin, Mic, MicOff, Plus, ChevronDown, Check, Loader2, Volume2, X } from "lucide-react";
 
 export default function App() {
-  const state = useTracking();
   const { lang, setLang, t } = useTranslation();
   const { fields, activeField, setActiveField, addField } = useField();
+  const state = useTracking(activeField?.cropType || "paddy", (lang === "ta" ? "ta" : "en"));
 
   const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number } | null>({ lat: 10.7870, lng: 79.1378 });
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'locating' | 'success' | 'manual'>('idle');

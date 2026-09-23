@@ -126,11 +126,17 @@ export class CustomSortTracker {
   private byteTracker: ByteTracker;
   private rawItems: Track[] = [];
   frame = 0;
+  cropContext = "paddy";
+  lang: "en" | "ta" = "en";
 
   constructor(
     private width = 960,
     private height = 540,
+    cropContext = "paddy",
+    lang: "en" | "ta" = "en",
   ) {
+    this.cropContext = cropContext.toLowerCase();
+    this.lang = lang;
     this.byteTracker = new ByteTracker({
       highScoreThresh: 0.60,
       lowScoreThresh: 0.25,
@@ -138,6 +144,11 @@ export class CustomSortTracker {
       secondMatchThresh: 0.25,
       maxLostFrames: 30,
     });
+  }
+
+  setContext(cropType: string, lang: "en" | "ta") {
+    this.cropContext = cropType.toLowerCase();
+    this.lang = lang;
   }
 
   resize(width: number, height: number) {
@@ -154,17 +165,64 @@ export class CustomSortTracker {
     for (let i = 0; i < diseaseCount; i++) this.spawn("disease");
   }
 
+  private getCropSpecificTaxonomy() {
+    const ctx = this.cropContext;
+    if (ctx.includes("tomato")) {
+      return {
+        crops: ["tomato"] as const,
+        pests: ["whitefly", "bollworm", "aphid", "spider mite"] as const,
+        diseases: ["leaf blight", "leaf curl"] as const,
+      };
+    }
+    if (ctx.includes("cotton")) {
+      return {
+        crops: ["cotton"] as const,
+        pests: ["bollworm", "aphid", "thrips", "whitefly"] as const,
+        diseases: ["leaf spot", "rust"] as const,
+      };
+    }
+    if (ctx.includes("maize") || ctx.includes("corn")) {
+      return {
+        crops: ["maize"] as const,
+        pests: ["caterpillar", "stem borer", "aphid"] as const,
+        diseases: ["leaf blight", "rust"] as const,
+      };
+    }
+    if (ctx.includes("chilli")) {
+      return {
+        crops: ["chilli"] as const,
+        pests: ["thrips", "spider mite", "aphid"] as const,
+        diseases: ["leaf curl", "leaf spot"] as const,
+      };
+    }
+    if (ctx.includes("sugarcane")) {
+      return {
+        crops: ["sugarcane"] as const,
+        pests: ["stem borer", "mealybug", "whitefly"] as const,
+        diseases: ["rust", "leaf spot"] as const,
+      };
+    }
+    // Default: Paddy / Rice
+    return {
+      crops: ["paddy", "crop row"] as const,
+      pests: ["leafhopper", "stem borer", "caterpillar", "grasshopper"] as const,
+      diseases: ["leaf blight", "leaf spot"] as const,
+    };
+  }
+
   spawn(category: "crop" | "pest" | "disease"): Track {
     const isCrop = category === "crop";
     const isDisease = category === "disease";
     const size = isCrop ? rand(90, 150) : isDisease ? rand(60, 100) : rand(48, 80);
-    const cls = isCrop
-      ? pick(CROP_CLASSES)
-      : isDisease
-      ? pick(DISEASE_CLASSES)
-      : pick(PEST_CLASSES);
 
-    const mapping = AgriClassMapper.map(cls);
+    const tax = this.getCropSpecificTaxonomy();
+    const cls: string = isCrop
+      ? pick(tax.crops)
+      : isDisease
+      ? pick(tax.diseases)
+      : pick(tax.pests);
+
+    const mapping = AgriClassMapper.map(cls, this.lang);
 
     const track: Track = {
       id: 0,
@@ -172,7 +230,7 @@ export class CustomSortTracker {
       displayName: mapping.displayName,
       emoji: mapping.emoji,
       category,
-      conf: rand(0.65, 0.96),
+      conf: rand(0.72, 0.96),
       cx: rand(size, this.width - size),
       cy: rand(size, this.height - size),
       w: size,

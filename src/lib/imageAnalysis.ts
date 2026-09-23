@@ -1,6 +1,6 @@
 // Single-image analysis — Real TensorFlow.js + Leaf Disease & AgriClassMapper pass over an image.
 import { AgriClassMapper, type Track } from "./agri";
-import { detectRealAgricultureObjects } from "./visionModel";
+import { detectRealAgricultureObjects, type SupportedCropContext } from "./visionModel";
 
 export interface ImageQualityResult {
   isGood: boolean;
@@ -59,20 +59,21 @@ export function checkImageQuality(ctx?: CanvasRenderingContext2D | null, width =
   }
 }
 
-/**
- * Runs REAL TensorFlow.js computer vision detection on an image element.
- * Accurately detects animals, birds, produce, plants, and foliage.
- */
 export async function analyzeImageElement(
   imgEl: HTMLImageElement,
   width: number,
   height: number,
   minConf = 0.50,
-  lang: 'en' | 'ta' = 'en'
+  lang: 'en' | 'ta' = 'en',
+  cropContext: SupportedCropContext = 'auto'
 ): Promise<ImageAnalysisResult> {
   const start = performance.now();
 
-  const detections = await detectRealAgricultureObjects(imgEl, width, height, minConf, lang);
+  const detections = await detectRealAgricultureObjects(imgEl, width, height, {
+    minConfidence: minConf,
+    lang,
+    cropContext,
+  });
 
   const crops = detections.filter(d => d.category === 'crop').length;
   const pests = detections.filter(d => d.category === 'pest').length;

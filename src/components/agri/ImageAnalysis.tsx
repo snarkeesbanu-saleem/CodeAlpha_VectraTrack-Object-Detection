@@ -27,6 +27,8 @@ import {
 import { classifyImageQuality, type QualityMetrics } from "@/lib/imageQualityClassifier";
 import { evaluateMultiTaskHead } from "@/lib/multiTaskHead";
 import { useTranslation } from "@/i18n/TranslationContext";
+import { useField } from "@/contexts/FieldContext";
+import type { SupportedCropContext } from "@/lib/visionModel";
 import { cn } from "@/lib/utils";
 import cropRows from "@/assets/sample-crop-rows.jpg";
 import pestInvasion from "@/assets/sample-pest-invasion.jpg";
@@ -36,19 +38,51 @@ import fieldPlot from "@/assets/field-plot.jpg";
 const W = 960;
 const H = 540;
 
-const SAMPLES = [
-  { src: orchard, label: "Fruit Orchard (Apple / Orange Trees)", bias: "crops" as const },
-  { src: cropRows, label: "Crop Rows (Paddy / Vegetables)", bias: "crops" as const },
-  { src: pestInvasion, label: "Field Pests & Animals (Insects / Wildlife)", bias: "pests" as const },
-  { src: fieldPlot, label: "Bare Field / Soil Plot (Empty State)", bias: "none" as const },
+const SAMPLES: { src: string; label: string; cropContext: SupportedCropContext; note: string }[] = [
+  {
+    src: orchard,
+    label: "🍎 Fruit Orchard (Apple & Citrus Trees)",
+    cropContext: "orchard",
+    note: "Fruit tree canopies, foliar disease & livestock check",
+  },
+  {
+    src: cropRows,
+    label: "🌾 Paddy & Vegetable Field Rows",
+    cropContext: "paddy",
+    note: "Linear crop canopy rows with BPH & stem borer scouting",
+  },
+  {
+    src: pestInvasion,
+    label: "🪲 Pest Infestation (Aphids & Caterpillars)",
+    cropContext: "auto",
+    note: "Direct foliar insect attack (Aphids, Armyworms, Whiteflies)",
+  },
+  {
+    src: fieldPlot,
+    label: "🌱 Bare Soil Field (Zero-Detection Clean)",
+    cropContext: "auto",
+    note: "Clean plowed soil control — tests zero false positives",
+  },
 ];
 
 export function ImageAnalysis({ threshold }: { threshold: number }) {
   const { lang } = useTranslation();
+  const { activeField } = useField();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
   const [src, setSrc] = useState<string>(SAMPLES[0]!.src);
+  const [cropContext, setCropContext] = useState<SupportedCropContext>(
+    (activeField?.cropType?.toLowerCase().includes("tomato")
+      ? "tomato"
+      : activeField?.cropType?.toLowerCase().includes("cotton")
+      ? "cotton"
+      : activeField?.cropType?.toLowerCase().includes("maize")
+      ? "maize"
+      : activeField?.cropType?.toLowerCase().includes("chilli")
+      ? "chilli"
+      : "orchard") as SupportedCropContext
+  );
   const [result, setResult] = useState<ImageAnalysisResult | null>(null);
   const [qualityMetrics, setQualityMetrics] = useState<QualityMetrics | null>(null);
   const [bypassGate, setBypassGate] = useState(false);
@@ -78,20 +112,27 @@ export function ImageAnalysis({ threshold }: { threshold: number }) {
         return;
       }
 
-      // Step 2: Deep ML Inference (TensorFlow COCO-SSD + Foliage Analysis)
-      const res = await analyzeImageElement(imageRef.current, W, H, confThreshold, lang);
+      // Step 2: Deep ML Inference (High-Accuracy Agriculture Model + Morphology Scan)
+      const res = await analyzeImageElement(
+        imageRef.current,
+        W,
+        H,
+        confThreshold,
+        (lang === "ta" ? "ta" : "en"),
+        cropContext
+      );
       setResult(res);
     } catch (err) {
       console.error("Inference error:", err);
     } finally {
       setBusy(false);
     }
-  }, [confThreshold, lang, bypassGate]);
+  }, [confThreshold, lang, bypassGate, cropContext]);
 
   useEffect(() => {
     setBypassGate(false);
     runDetection();
-  }, [src, confThreshold, runDetection]);
+  }, [src, confThreshold, cropContext, runDetection]);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -140,37 +181,77 @@ export function ImageAnalysis({ threshold }: { threshold: number }) {
   return (
     <div className="space-y-6">
       {/* CONFIDENCE & DENSITY GRID CONTROLLER */}
-      <div className="panel p-4 bg-slate-900/80 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-mono text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-            <Cpu className="h-4 w-4" /> AI Neural Filter:
-          </span>
-          <span className="text-xs text-slate-300">
-            Min Confidence: <strong className="text-emerald-400">{(confThreshold * 100).toFixed(0)}%</strong>
-          </span>
+      <div className="panel p-4 bg-slate-900/80 border border-slate-800 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <Cpu className="h-4 w-4" /> AI Neural Filter:
+            </span>
+            <span className="text-xs text-slate-300">
+              Min Confidence: <strong className="text-emerald-400">{(confThreshold * 100).toFixed(0)}%</strong>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <input
+              type="range"
+              min="0.30"
+              max="0.85"
+              step="0.05"
+              value={confThreshold}
+              onChange={(e) => setConfThreshold(parseFloat(e.target.value))}
+              className="w-40 accent-emerald-500 cursor-pointer"
+            />
+            <button
+              type="button"
+              onClick={() => setShowGrid((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border font-bold transition cursor-pointer ${
+                showGrid
+                  ? "bg-emerald-950 text-emerald-300 border-emerald-500"
+                  : "bg-slate-900 text-slate-400 border-slate-700 hover:text-white"
+              }`}
+            >
+              <Grid className="h-3.5 w-3.5" />
+              <span>{showGrid ? "Hide Sector Grid (A1-D6)" : "Show Density Grid"}</span>
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <input
-            type="range"
-            min="0.30"
-            max="0.85"
-            step="0.05"
-            value={confThreshold}
-            onChange={(e) => setConfThreshold(parseFloat(e.target.value))}
-            className="w-40 accent-emerald-500 cursor-pointer"
-          />
-          <button
-            type="button"
-            onClick={() => setShowGrid((v) => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border font-bold transition cursor-pointer ${
-              showGrid
-                ? "bg-emerald-950 text-emerald-300 border-emerald-500"
-                : "bg-slate-900 text-slate-400 border-slate-700 hover:text-white"
-            }`}
-          >
-            <Grid className="h-3.5 w-3.5" />
-            <span>{showGrid ? "Hide Sector Grid (A1-D6)" : "Show Density Grid"}</span>
-          </button>
+
+        {/* 🌾 FIELD CROP CONTEXT SELECTOR (TAILORS ACCURATE CROP & PEST SPECIES) */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-emerald-400 uppercase tracking-wider font-bold">
+              Target Crop:
+            </span>
+            <span className="text-xs text-slate-400">
+              Active Context: <strong className="text-white capitalize">{cropContext}</strong>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { id: 'auto', label: '🤖 Auto-Detect' },
+              { id: 'paddy', label: '🌾 Paddy / Rice' },
+              { id: 'tomato', label: '🍅 Tomato' },
+              { id: 'cotton', label: '🌿 Cotton' },
+              { id: 'maize', label: '🌽 Maize / Corn' },
+              { id: 'chilli', label: '🌶️ Chilli' },
+              { id: 'sugarcane', label: '🎋 Sugarcane' },
+              { id: 'orchard', label: '🍎 Orchard' },
+            ].map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setCropContext(c.id as SupportedCropContext)}
+                className={cn(
+                  "px-2.5 py-1 text-xs rounded-md border font-medium transition cursor-pointer",
+                  cropContext === c.id
+                    ? "bg-emerald-600 text-white border-emerald-400 shadow-sm"
+                    : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-600"
+                )}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -366,15 +447,20 @@ export function ImageAnalysis({ threshold }: { threshold: number }) {
         <p className="mb-3 flex items-center gap-2 text-xs tracking-widest text-slate-400 uppercase font-semibold">
           <Images className="h-4 w-4 text-emerald-400" /> Pre-Set Agronomy & Farm Datasets
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {SAMPLES.map((s) => (
             <button
               key={s.label}
               type="button"
-              onClick={() => setSrc(s.src)}
+              onClick={() => {
+                setSrc(s.src);
+                setCropContext(s.cropContext);
+              }}
               className={cn(
-                "group overflow-hidden rounded-lg border text-left transition",
-                src === s.src ? "border-emerald-500 ring-1 ring-emerald-500" : "border-slate-800 hover:border-emerald-500/50",
+                "group overflow-hidden rounded-lg border text-left transition cursor-pointer flex flex-col justify-between",
+                src === s.src
+                  ? "border-emerald-500 ring-2 ring-emerald-500/50 bg-emerald-950/20"
+                  : "border-slate-800 hover:border-emerald-500/50 bg-slate-950/40",
               )}
             >
               <img
@@ -383,9 +469,12 @@ export function ImageAnalysis({ threshold }: { threshold: number }) {
                 width={1088}
                 height={608}
                 loading="lazy"
-                className="h-20 w-full object-cover transition group-hover:scale-105"
+                className="h-24 w-full object-cover transition group-hover:scale-105"
               />
-              <span className="block px-2.5 py-1.5 text-[11px] text-slate-300 font-medium">{s.label}</span>
+              <div className="p-2 space-y-0.5">
+                <span className="block text-xs text-white font-bold">{s.label}</span>
+                <span className="block text-[10px] text-slate-400 font-sans leading-tight">{s.note}</span>
+              </div>
             </button>
           ))}
         </div>
