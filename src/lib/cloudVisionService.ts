@@ -410,28 +410,36 @@ export async function runEnsembleInference(
     }
   }
 
-  // Ensure botanical tree and plant canopy detections are always present
-  if (!detections.some((d) => d.category === "crop")) {
+  // ── ALWAYS run local model and merge ALL categories ─────────────────────────
+  // This ensures birds/insects/plants are detected even when cloud API is absent
+  {
     const localTracks = await detectRealAgricultureObjects(imageEl, targetWidth, targetHeight, {
       minConfidence: confThreshold,
       lang,
       cropContext,
     });
-    const plantTracks = localTracks
-      .filter((t) => t.category === "crop")
-      .map((t) => ({ ...t, engineSource: "local" as const }));
-    detections.push(...plantTracks);
-  }
 
-  // Fallback: If no detections found from cloud or in local mode, run full local engine
-  if (detections.length === 0 || engineMode === "local") {
-    const localTracks = await detectRealAgricultureObjects(imageEl, targetWidth, targetHeight, {
-      minConfidence: confThreshold,
-      lang,
-      cropContext,
-    });
-    detections = localTracks.map((t) => ({ ...t, engineSource: "local" as const }));
-    engineUsed = "Local MobileNet + ByteTrack (Edge)";
+    if (engineMode === "local") {
+      // Pure local mode — replace everything with local results
+      detections = localTracks.map((t) => ({ ...t, engineSource: "local" as const }));
+      engineUsed = "Local MobileNet + ByteTrack (Edge)";
+    } else {
+      // Ensemble / cloud mode — merge local results that don't overlap cloud results
+      for (const lt of localTracks) {
+        const overlapExists = detections.some(
+          (d) =>
+            d.category === lt.category &&
+            Math.hypot(d.cx - lt.cx, d.cy - lt.cy) < Math.max(d.w, lt.w) * 0.45
+        );
+        if (!overlapExists) {
+          detections.push({ ...lt, engineSource: "local" as const });
+        }
+      }
+      // If cloud contributed nothing, label as local
+      if (!detections.some((d) => d.engineSource !== "local")) {
+        engineUsed = "Local MobileNet + ByteTrack (Edge)";
+      }
+    }
   }
 
   const crops = detections.filter((d) => d.category === "crop").length;
