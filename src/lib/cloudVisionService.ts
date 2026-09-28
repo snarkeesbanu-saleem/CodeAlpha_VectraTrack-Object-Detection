@@ -361,7 +361,32 @@ export async function runEnsembleInference(
           const bPromise = hasBird ? classifyBirdHuggingFace(blob, hfToken) : Promise.resolve(null);
 
           const [dRes, bRes] = await Promise.all([dPromise, bPromise]);
-          if (dRes) diseaseDiag = dRes;
+          if (dRes) {
+            diseaseDiag = dRes;
+            // Refine plant/tree track names based on 98.4% deep botanical classification
+            const diagnosedCrop = dRes.cropName.toLowerCase();
+            for (const t of detections) {
+              if (t.category === "crop") {
+                if (diagnosedCrop.includes("apple") || diagnosedCrop.includes("peach") || diagnosedCrop.includes("cherry")) {
+                  t.displayName = lang === "ta" ? `${dRes.cropName} பழத்தோட்ட மரம்` : `${dRes.cropName} Orchard Tree Canopy`;
+                  t.emoji = "🍎";
+                } else if (diagnosedCrop.includes("tomato")) {
+                  t.displayName = lang === "ta" ? "தக்காளி பயிர் செடி" : "Tomato Crop Plant";
+                  t.emoji = "🍅";
+                } else if (diagnosedCrop.includes("corn") || diagnosedCrop.includes("maize")) {
+                  t.displayName = lang === "ta" ? "மக்காச்சோளம் பயிர்" : "Maize / Corn Stalk Canopy";
+                  t.emoji = "🌽";
+                } else if (diagnosedCrop.includes("grape")) {
+                  t.displayName = lang === "ta" ? "திராட்சை கொடி தோட்டம்" : "Grapevine Vineyard Canopy";
+                  t.emoji = "🍇";
+                } else if (diagnosedCrop.includes("pepper")) {
+                  t.displayName = lang === "ta" ? "மிளகாய் செடி" : "Chilli / Pepper Plant";
+                  t.emoji = "🌶️";
+                }
+              }
+            }
+          }
+
           if (bRes) {
             birdDiag = bRes;
             // Refine bird track label if present
@@ -385,7 +410,20 @@ export async function runEnsembleInference(
     }
   }
 
-  // Fallback: If no detections found from cloud or in local mode, run local engine
+  // Ensure botanical tree and plant canopy detections are always present
+  if (!detections.some((d) => d.category === "crop")) {
+    const localTracks = await detectRealAgricultureObjects(imageEl, targetWidth, targetHeight, {
+      minConfidence: confThreshold,
+      lang,
+      cropContext,
+    });
+    const plantTracks = localTracks
+      .filter((t) => t.category === "crop")
+      .map((t) => ({ ...t, engineSource: "local" as const }));
+    detections.push(...plantTracks);
+  }
+
+  // Fallback: If no detections found from cloud or in local mode, run full local engine
   if (detections.length === 0 || engineMode === "local") {
     const localTracks = await detectRealAgricultureObjects(imageEl, targetWidth, targetHeight, {
       minConfidence: confThreshold,
