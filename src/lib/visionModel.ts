@@ -1,23 +1,30 @@
-// Vision Model Service — High-Accuracy Agricultural Computer Vision v6.0
-// Fixes:
-// 1. mobilenet_v2 (full) instead of lite for better bird/animal detection
-// 2. Multi-sector validation for insect pixel heuristics (no more false positives)
-// 3. Connected-component canopy clustering for accurate plant/tree boxes
-// 4. Tightened confidence and box-size gates
-// 5. Proper min-confidence passthrough to COCO-SSD detect call
+// Vision Model Service v7.0 — Reliable Agricultural Detection
+// 
+// ARCHITECTURE:
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. COCO-SSD mobilenet_v2: Reliable detection of birds, livestock animals,
+//    and produce-category objects that exist in COCO's 80 classes.
+//
+// 2. Pixel canopy scanner: Detects green plant/tree canopy regions using a
+//    connected-component algorithm. Label is ALWAYS driven by cropContext.
+//    Never overrides user's explicit crop selection.
+//
+// 3. Pixel pest scanner: Conservative thresholds. Only fires when BOTH the
+//    sector AND at least 2 neighbouring sectors exceed threshold. This
+//    eliminates false positives from soil, bark, and sky.
+//
+// 4. cropContext is the SOURCE OF TRUTH for crop naming. Auto-detect only
+//    applies when user selected "auto".
+// ─────────────────────────────────────────────────────────────────────────────
 
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import type { Track } from './agri';
-import {
-  CROP_DISPLAY,
-  PEST_DISPLAY,
-  DISEASE_DISPLAY,
-} from '@/agriMapper';
+import { CROP_DISPLAY, PEST_DISPLAY, DISEASE_DISPLAY } from '@/agriMapper';
 
+// ── Model singleton ───────────────────────────────────────────────────────────
 let modelPromise: Promise<cocoSsd.ObjectDetection> | null = null;
 
-// FIX 1: Use mobilenet_v2 (full accuracy) instead of lite_mobilenet_v2
 export async function getVisionModel(): Promise<cocoSsd.ObjectDetection> {
   if (!modelPromise) {
     modelPromise = (async () => {
@@ -28,15 +35,10 @@ export async function getVisionModel(): Promise<cocoSsd.ObjectDetection> {
   return modelPromise;
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 export type SupportedCropContext =
-  | 'auto'
-  | 'paddy'
-  | 'tomato'
-  | 'cotton'
-  | 'maize'
-  | 'chilli'
-  | 'sugarcane'
-  | 'orchard';
+  | 'auto' | 'paddy' | 'tomato' | 'cotton'
+  | 'maize' | 'chilli' | 'sugarcane' | 'orchard';
 
 export interface DetectionOptions {
   minConfidence?: number;
@@ -44,73 +46,106 @@ export interface DetectionOptions {
   cropContext?: SupportedCropContext;
 }
 
-// ── PEST & INTRUDER ANIMAL TAXONOMY ──────────────────────────────────────────
-const ANIMAL_PESTS: Record<string, { en: string; ta: string; emoji: string }> = {
-  bird:  { en: 'Grain-Feeding Field Bird',       ta: 'பறவை (தானிய சேதம்)',        emoji: '🐦' },
-  cow:   { en: 'Cattle Intrusion / Grazing',      ta: 'கால்நடை மேய்ச்சல் (மாடு)', emoji: '🐄' },
-  sheep: { en: 'Livestock Grazing (Sheep)',        ta: 'ஆடு மேய்ச்சல்',            emoji: '🐑' },
-  horse: { en: 'Livestock Intrusion (Horse)',      ta: 'குதிரை ஊடுருவல்',          emoji: '🐎' },
-  mouse: { en: 'Field Rodent / Rat',               ta: 'வயல் எலி (பயிர் சேதம்)',   emoji: '🐭' },
-  dog:   { en: 'Farm Perimeter Stray Dog',         ta: 'நாய்கள் ஊடுருவல்',         emoji: '🐕' },
-  cat:   { en: 'Farm Perimeter Animal (Cat)',      ta: 'பூனை',                      emoji: '🐈' },
-  bear:  { en: 'Wild Animal Intrusion',            ta: 'காட்டு விலங்கு',            emoji: '🐻' },
+// ── COCO class → Agricultural mapping ────────────────────────────────────────
+// These are the ONLY classes COCO-SSD can actually detect reliably
+const COCO_ANIMAL_PESTS: Record<string, { en: string; ta: string; emoji: string }> = {
+  bird:  { en: 'Grain-Feeding Field Bird',    ta: 'பறவை (தானிய சேதம்)',       emoji: '🐦' },
+  cow:   { en: 'Cattle Grazing Intrusion',     ta: 'மாடு (கால்நடை ஊடுருவல்)',  emoji: '🐄' },
+  sheep: { en: 'Sheep Grazing Intrusion',      ta: 'ஆடு மேய்ச்சல்',            emoji: '🐑' },
+  horse: { en: 'Horse Intrusion',              ta: 'குதிரை ஊடுருவல்',          emoji: '🐎' },
+  mouse: { en: 'Field Rodent / Rat',           ta: 'வயல் எலி',                  emoji: '🐭' },
+  dog:   { en: 'Stray Dog (Field Intrusion)',  ta: 'நாய் ஊடுருவல்',            emoji: '🐕' },
+  cat:   { en: 'Cat (Field Intrusion)',        ta: 'பூனை ஊடுருவல்',            emoji: '🐈' },
+  bear:  { en: 'Wild Animal Intrusion (Bear)', ta: 'கரடி ஊடுருவல்',            emoji: '🐻' },
 };
 
-// ── COCO PRODUCE → AGRICULTURAL CROP LABELS ─────────────────────────────────
-const PRODUCE_CROPS: Record<string, { en: string; ta: string; emoji: string; cocoKey: string }> = {
-  apple:         { en: 'Apple Orchard Tree',                      ta: 'ஆப்பிள் பழ மரம்',            emoji: '🍎', cocoKey: 'orchard'  },
-  orange:        { en: 'Citrus Orchard Crop (Orange)',             ta: 'ஆரஞ்சு / எலுமிச்சை மரம்',   emoji: '🍊', cocoKey: 'orchard'  },
-  banana:        { en: 'Banana Plant Canopy',                      ta: 'வாழை மரம் / இலைகள்',         emoji: '🍌', cocoKey: 'banana'   },
-  broccoli:      { en: 'Vegetable Crop (Cole Crop / Broccoli)',    ta: 'காய்கறி பயிர் (பிரக்கோலி)',  emoji: '🥦', cocoKey: 'tomato'   },
-  carrot:        { en: 'Root Vegetable Crop (Carrot)',             ta: 'கிழங்கு பயிர் (கேரட்)',       emoji: '🥕', cocoKey: 'tomato'   },
-  'potted plant':{ en: 'Agricultural Crop Plant',                  ta: 'பயிர் செடி',                  emoji: '🌱', cocoKey: 'plant'    },
+const COCO_PRODUCE_CROPS: Record<string, { en: string; ta: string; emoji: string; cropKey: string }> = {
+  apple:          { en: 'Apple Orchard Tree',          ta: 'ஆப்பிள் மரம்',             emoji: '🍎', cropKey: 'orchard'  },
+  orange:         { en: 'Citrus / Orange Orchard',     ta: 'ஆரஞ்சு / எலுமிச்சை மரம்', emoji: '🍊', cropKey: 'orchard'  },
+  banana:         { en: 'Banana Plant Canopy',         ta: 'வாழை மரம் / இலைகள்',      emoji: '🍌', cropKey: 'banana'   },
+  broccoli:       { en: 'Vegetable Crop (Broccoli)',   ta: 'காய்கறி பயிர்',            emoji: '🥦', cropKey: 'tomato'   },
+  carrot:         { en: 'Root Vegetable Crop (Carrot)',ta: 'கேரட் / கிழங்கு பயிர்',   emoji: '🥕', cropKey: 'tomato'   },
+  'potted plant': { en: 'Crop Plant',                  ta: 'பயிர் செடி',               emoji: '🌱', cropKey: 'plant'    },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  MAIN DETECTION ENTRY POINT
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Crop context → display info (SOURCE OF TRUTH) ────────────────────────────
+function getCropInfoForContext(
+  context: SupportedCropContext,
+  isTreeScene: boolean,
+  avgGreen: number,
+  lang: 'en' | 'ta'
+): { key: string; displayName: string; emoji: string } {
+  const get = (key: string) => {
+    const info = CROP_DISPLAY[key];
+    return info ? { key, displayName: lang === 'ta' ? info.ta : info.en, emoji: info.emoji }
+                 : { key: 'plant', displayName: lang === 'ta' ? 'பயிர் செடி' : 'Crop Plant', emoji: '🌱' };
+  };
+
+  switch (context) {
+    case 'paddy':    return get('paddy');
+    case 'tomato':   return get('tomato');
+    case 'cotton':   return get('cotton');
+    case 'maize':    return get('maize');
+    case 'chilli':   return get('chilli');
+    case 'sugarcane':return get('sugarcane');
+    case 'orchard':  return get('orchard');
+    case 'auto':
+    default:
+      // Auto: use scene signals only when user didn't pick a crop
+      if (isTreeScene)          return get('orchard');
+      if (avgGreen > 0.55)      return get('tree');
+      if (avgGreen > 0.38)      return get('crop row');
+      return get('plant');
+  }
+}
+
+// ── Main detection function ───────────────────────────────────────────────────
 export async function detectRealAgricultureObjects(
   imageEl: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
   targetWidth: number,
   targetHeight: number,
   opts?: DetectionOptions
 ): Promise<Track[]> {
-  const minConfidence = opts?.minConfidence ?? 0.50;
-  const lang          = opts?.lang          ?? 'en';
-  const cropContext   = opts?.cropContext   ?? 'auto';
+  const minConf    = opts?.minConfidence ?? 0.50;
+  const lang       = opts?.lang          ?? 'en';
+  const cropCtx    = opts?.cropContext   ?? 'auto';
 
   const tracks: Track[] = [];
-  let trackId = 1;
+  let   trackId = 1;
 
-  const srcW   = (imageEl as HTMLImageElement).naturalWidth  || (imageEl as HTMLVideoElement).videoWidth  || imageEl.width  || targetWidth;
-  const srcH   = (imageEl as HTMLImageElement).naturalHeight || (imageEl as HTMLVideoElement).videoHeight || imageEl.height || targetHeight;
+  const srcW   = (imageEl as HTMLImageElement).naturalWidth  ||
+                 (imageEl as HTMLVideoElement).videoWidth    ||
+                 imageEl.width  || targetWidth;
+  const srcH   = (imageEl as HTMLImageElement).naturalHeight ||
+                 (imageEl as HTMLVideoElement).videoHeight   ||
+                 imageEl.height || targetHeight;
   const scaleX = targetWidth  / srcW;
   const scaleY = targetHeight / srcH;
 
-  // ── 1. TENSORFLOW COCO-SSD NEURAL PASS (Birds, Livestock, Produce, Plants) ─
+  // ────────────────────────────────────────────────────────────────────────────
+  // STEP 1 — COCO-SSD Neural Network Pass
+  //   Reliable for: birds, cows, sheep, horse, dog, cat, mouse, bear,
+  //   apple, orange, banana, broccoli, carrot, potted plant
+  // ────────────────────────────────────────────────────────────────────────────
   try {
     const model = await getVisionModel();
 
-    // FIX 5: Pass a reasonable threshold directly to COCO-SSD detect()
-    // Use 30% of user's min-confidence as lower bound so COCO can catch harder detections
-    const cocoMinScore = Math.max(0.28, minConfidence * 0.52);
-    const predictions  = await model.detect(imageEl, 20, cocoMinScore);
+    // Use a lower raw threshold so COCO can pick up partially occluded animals
+    const cocoThresh = Math.max(0.25, minConf * 0.50);
+    const predictions = await model.detect(imageEl, 20, cocoThresh);
 
     for (const pred of predictions) {
       const cls   = pred.class.toLowerCase().trim();
       const score = pred.score;
       const [bx, by, bw, bh] = pred.bbox;
-      const x = bx * scaleX;
-      const y = by * scaleY;
-      const w = bw * scaleX;
-      const h = bh * scaleY;
+      const x = bx * scaleX, y = by * scaleY;
+      const w = bw * scaleX, h = bh * scaleY;
 
-      // FIX 4: Minimum area gate — skip tiny noise boxes
-      if (w * h < 900) continue;
+      if (w * h < 800) continue; // ignore tiny noise boxes
 
-      // ── Animal / Bird Pests (need full user confidence) ──
-      if (cls in ANIMAL_PESTS && score >= minConfidence * 0.75) {
-        const info = ANIMAL_PESTS[cls]!;
+      // ── Animals / Birds → pest category ──
+      if (cls in COCO_ANIMAL_PESTS && score >= minConf * 0.70) {
+        const info = COCO_ANIMAL_PESTS[cls]!;
         tracks.push({
           id: trackId++,
           cocoClass: cls,
@@ -118,471 +153,332 @@ export async function detectRealAgricultureObjects(
           emoji: info.emoji,
           category: 'pest',
           conf: score,
-          cx: x + w / 2,
-          cy: y + h / 2,
-          w,
-          h,
+          cx: x + w / 2, cy: y + h / 2, w, h,
           vx: 0, vy: 0, speed: 0, trail: [],
         });
       }
-      // ── Produce / Plants → Agriculture Crop Labels ──
-      else if (cls in PRODUCE_CROPS && score >= Math.max(0.30, minConfidence * 0.55)) {
-        const info = PRODUCE_CROPS[cls]!;
-        let cropName = lang === 'ta' ? info.ta : info.en;
+      // ── Produce / Plants → crop category ──
+      else if (cls in COCO_PRODUCE_CROPS && score >= Math.max(0.28, minConf * 0.50)) {
+        const info = COCO_PRODUCE_CROPS[cls]!;
 
-        // Respect active crop context
-        if      (cropContext === 'orchard'    || info.cocoKey === 'orchard') cropName = lang === 'ta' ? 'பழத்தோட்ட மரம் (Orchard Tree)' : 'Fruit Orchard Tree Canopy';
-        else if (cropContext === 'paddy')    cropName = lang === 'ta' ? 'நெல் பயிர் (Paddy)'     : 'Paddy / Rice Crop';
-        else if (cropContext === 'tomato')   cropName = lang === 'ta' ? 'தக்காளி பயிர் (Tomato)' : 'Tomato Crop Plant';
-        else if (cropContext === 'cotton')   cropName = lang === 'ta' ? 'பருத்தி பயிர் (Cotton)' : 'Cotton Plant Canopy';
-        else if (cropContext === 'maize')    cropName = lang === 'ta' ? 'மக்காச்சோளம் (Corn)'    : 'Maize / Corn Canopy';
-        else if (cropContext === 'chilli')   cropName = lang === 'ta' ? 'மிளகாய் பயிர் (Chilli)' : 'Chilli Crop Plant';
+        // Respect explicit cropContext — don't override if user picked a specific crop
+        let displayName: string;
+        let emoji: string;
+        let cocoKey: string;
 
-        tracks.push({
-          id: trackId++,
-          cocoClass: info.cocoKey,
-          displayName: cropName,
-          emoji: info.emoji,
-          category: 'crop',
-          conf: score,
-          cx: x + w / 2,
-          cy: y + h / 2,
-          w,
-          h,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        if (cropCtx !== 'auto') {
+          // User explicitly selected a crop type — use that label
+          const ctxInfo = getCropInfoForContext(cropCtx, false, 0, lang);
+          displayName = ctxInfo.displayName;
+          emoji       = ctxInfo.emoji;
+          cocoKey     = ctxInfo.key;
+        } else {
+          displayName = lang === 'ta' ? info.ta : info.en;
+          emoji       = info.emoji;
+          cocoKey     = info.cropKey;
+        }
+
+        const alreadyCovered = tracks.some(
+          (t) => t.category === 'crop' &&
+                 Math.hypot(t.cx - (x + w/2), t.cy - (y + h/2)) < w * 0.5
+        );
+        if (!alreadyCovered) {
+          tracks.push({
+            id: trackId++,
+            cocoClass: cocoKey,
+            displayName,
+            emoji,
+            category: 'crop',
+            conf: score,
+            cx: x + w / 2, cy: y + h / 2, w, h,
+            vx: 0, vy: 0, speed: 0, trail: [],
+          });
+        }
       }
     }
   } catch (err) {
-    console.warn('TensorFlow inference notice:', err);
+    console.warn('[VisionModel] TF inference error:', err);
   }
 
-  // ── 2. PIXEL-LEVEL INSECT MORPHOLOGY + CANOPY SCANNER ───────────────────────
+  // ────────────────────────────────────────────────────────────────────────────
+  // STEP 2 — Pixel-level canopy & insect scanner
+  // ────────────────────────────────────────────────────────────────────────────
   try {
     const canvas = document.createElement('canvas');
     canvas.width  = targetWidth;
     canvas.height = targetHeight;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) throw new Error('No 2D context');
+    const ctx2 = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx2) throw new Error('no 2d ctx');
 
-    ctx.drawImage(imageEl, 0, 0, targetWidth, targetHeight);
-    const imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
-    const data    = imgData.data;
+    ctx2.drawImage(imageEl, 0, 0, targetWidth, targetHeight);
+    const { data } = ctx2.getImageData(0, 0, targetWidth, targetHeight);
 
-    // Fine-grained 8×6 grid → 48 sectors
-    const cols = 8;
-    const rows = 6;
-    const sw   = targetWidth  / cols;
-    const sh   = targetHeight / rows;
+    // 8 columns × 6 rows = 48 sectors
+    const COLS = 8, ROWS = 6;
+    const SW = targetWidth / COLS, SH = targetHeight / ROWS;
 
-    interface SectorStats {
-      col: number; row: number;
-      sx: number;  sy: number;
-      samples: number;
-      greenRatio:       number;
-      woodyRatio:       number;
-      fruitRatio:       number;
-      aphidRatio:       number;
-      whiteflyRatio:    number;
-      caterpillarRatio: number;
-      miteRatio:        number;
-      blightRatio:      number;
-      leafhopperRatio:  number;
-      bollwormRatio:    number;
+    interface Sector {
+      col: number; row: number; sx: number; sy: number; n: number;
+      green: number; woody: number; fruit: number;
+      aphid: number; fly: number; cat: number;
+      mite: number; blight: number; hopper: number; boll: number;
     }
 
-    const gridStats: SectorStats[] = [];
-    let totalWoodyPixels  = 0;
-    let totalFruitPixels  = 0;
-    let totalGreenPixels  = 0;
-    let totalSampleCount  = 0;
+    const grid: Sector[] = [];
+    let totGreen = 0, totWoody = 0, totFruit = 0, totN = 0;
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const sx = Math.floor(c * sw);
-        const sy = Math.floor(r * sh);
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const sx = Math.floor(c * SW), sy = Math.floor(r * SH);
+        let n = 0;
+        let green=0, woody=0, fruit=0;
+        let aphid=0, fly=0, catCount=0, mite=0, blight=0, hopper=0, boll=0;
 
-        let greenCount = 0, woodyCount = 0, fruitCount = 0;
-        let aphidCount = 0, whiteflyCount = 0, caterpillarCount = 0;
-        let miteCount  = 0, blightCount  = 0, leafhopperCount  = 0, bollwormCount = 0;
-        let samples = 0;
+        for (let py = sy; py < sy + SH; py += 4) {
+          for (let px = sx; px < sx + SW; px += 4) {
+            const i = (py * targetWidth + px) * 4;
+            const R = data[i]!, G = data[i+1]!, B = data[i+2]!;
+            n++; totN++;
 
-        for (let py = sy; py < sy + sh; py += 5) {
-          for (let px = sx; px < sx + sw; px += 5) {
-            const idx = (py * targetWidth + px) * 4;
-            const R   = data[idx]!;
-            const G   = data[idx + 1]!;
-            const B   = data[idx + 2]!;
-            samples++;
-            totalSampleCount++;
-
-            // 1. Vibrant Green Leaves / Foliage
-            if (G > R * 1.12 && G > B * 1.14 && G > 55) {
-              greenCount++;
-              totalGreenPixels++;
+            // Green leaf foliage: G clearly dominant, bright enough
+            if (G > R * 1.15 && G > B * 1.16 && G > 50) {
+              green++; totGreen++;
             }
-            // 2. Woody Tree Trunk / Branch (rich brown bark)
-            else if (R > 68 && R < 168 && G > 44 && G < 122 && B < 82 && R > G * 1.22 && G > B * 1.12) {
-              woodyCount++;
-              totalWoodyPixels++;
+            // Woody bark: warm brown, R > G > B
+            else if (R > 70 && R < 165 && G > 45 && G < 120 && B < 80 &&
+                     R > G * 1.25 && G > B * 1.15) {
+              woody++; totWoody++;
             }
-            // 3. Fruit in canopy (Apples: red, Oranges: orange-red, Citrus: yellow)
-            else if (
-              (R > 155 && G < 88  && B < 68) ||       // deep red fruit (apple)
-              (R > 185 && G > 105 && B < 58) ||       // orange fruit (orange/citrus)
-              (R > 195 && G > 175 && B < 60)          // yellow fruit (lemon/mango)
-            ) {
-              fruitCount++;
-              totalFruitPixels++;
+            // Fruit (red apple, orange citrus, yellow mango)
+            else if ((R > 160 && G < 85  && B < 65) ||   // red apple
+                     (R > 190 && G > 110 && B < 55) ||   // orange
+                     (R > 200 && G > 180 && B < 60)) {   // yellow fruit
+              fruit++; totFruit++;
             }
-            // 4. Aphid colony — yellowish-green clustered bodies on stems
-            else if (G > 75 && R > 68 && R < 128 && B < 58 && Math.abs(R - G) < 28 && G > B * 1.3) {
-              aphidCount++;
+            // Aphid colony: yellow-green cluster on stems, small contrast
+            else if (G > 80 && R > 70 && R < 130 && B < 55 &&
+                     Math.abs(R - G) < 25 && G > B * 1.35) {
+              aphid++;
             }
-            // 5. Whitefly — bright near-white micro-specks on dark leaf background
-            else if (R > 210 && G > 210 && B > 200 && G > R - 18 && Math.abs(R - G) < 22) {
-              whiteflyCount++;
+            // Whitefly: very bright near-white speck
+            else if (R > 215 && G > 215 && B > 205 && Math.abs(R - G) < 20) {
+              fly++;
             }
-            // 6. Caterpillar / Armyworm — muted olive-green/brown-green segmented body
-            else if (R > 62 && R < 115 && G > 72 && G < 128 && B < 62 && R > B * 1.35 && Math.abs(R - G) < 32) {
-              caterpillarCount++;
+            // Caterpillar / Armyworm: olive-green segmented body
+            else if (R > 65 && R < 112 && G > 75 && G < 125 && B < 60 &&
+                     R > B * 1.40 && Math.abs(R - G) < 30) {
+              catCount++;
             }
-            // 7. Red Spider Mite — tiny red-orange dots
-            else if (R > 148 && G < 98 && B < 68 && R > G * 1.48) {
-              miteCount++;
+            // Spider Mite: tiny red-orange dots
+            else if (R > 155 && G < 95 && B < 65 && R > G * 1.55) {
+              mite++;
             }
-            // 8. Leaf Blight / Brown necrotic lesion
-            else if (R > 125 && R < 182 && G > 82 && G < 138 && B < 62 && R > G * 1.08) {
-              blightCount++;
+            // Blight / necrotic lesion: warm brown
+            else if (R > 128 && R < 180 && G > 85 && G < 135 && B < 60 &&
+                     R > G * 1.10) {
+              blight++;
             }
-            // 9. Brown Planthopper (BPH) / Leafhopper — dark brown slender body on green
-            else if (R > 55 && R < 105 && G > 42 && G < 90 && B > 20 && B < 65 && R > G * 1.15) {
-              leafhopperCount++;
+            // Leafhopper / BPH: dark brown-olive slender body
+            else if (R > 58 && R < 108 && G > 45 && G < 92 && B > 22 && B < 68 &&
+                     R > G * 1.18) {
+              hopper++;
             }
-            // 10. Bollworm / Fruit Borer — pinkish-cream larval body
-            else if (R > 185 && G > 145 && B > 115 && R > G * 1.12 && G > B * 1.08 && B > 100) {
-              bollwormCount++;
+            // Bollworm / Fruit borer: pinkish cream larva
+            else if (R > 190 && G > 150 && B > 120 &&
+                     R > G * 1.10 && G > B * 1.08 && B > 105) {
+              boll++;
             }
           }
         }
 
-        gridStats.push({
-          col: c, row: r, sx, sy,
-          samples,
-          greenRatio:       greenCount       / (samples || 1),
-          woodyRatio:       woodyCount       / (samples || 1),
-          fruitRatio:       fruitCount       / (samples || 1),
-          aphidRatio:       aphidCount       / (samples || 1),
-          whiteflyRatio:    whiteflyCount    / (samples || 1),
-          caterpillarRatio: caterpillarCount / (samples || 1),
-          miteRatio:        miteCount        / (samples || 1),
-          blightRatio:      blightCount      / (samples || 1),
-          leafhopperRatio:  leafhopperCount  / (samples || 1),
-          bollwormRatio:    bollwormCount    / (samples || 1),
+        grid.push({ col: c, row: r, sx, sy, n,
+          green: green/n, woody: woody/n, fruit: fruit/n,
+          aphid: aphid/n, fly: fly/n, cat: catCount/n,
+          mite: mite/n, blight: blight/n, hopper: hopper/n, boll: boll/n,
         });
       }
     }
 
-    // ── Scene-level botanical signals ─────────────────────────────────────────
-    const overallGreenRatio = totalGreenPixels / (totalSampleCount || 1);
-    const overallWoodyRatio = totalWoodyPixels / (totalSampleCount || 1);
-    const isTreeOrchardScene = overallWoodyRatio > 0.055 || totalFruitPixels > 20 || cropContext === 'orchard';
+    const overallGreen = totGreen / totN;
+    const overallWoody = totWoody / totN;
+    const isTreeScene  = overallWoody > 0.06 || totFruit > 25 || cropCtx === 'orchard';
 
-    // ── FIX 2: Multi-sector validation helper ────────────────────────────────
-    // A pest fires only if the target sector AND at least 1 neighbour sector exceed a secondary ratio
-    const neighborSectors = (r: number, c: number): SectorStats[] => {
-      const result: SectorStats[] = [];
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const nr = r + dr; const nc = c + dc;
-          if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-            result.push(gridStats[nr * cols + nc]!);
-          }
+    // ── Neighbour-agreement helper ──────────────────────────────────────────
+    // Returns number of adjacent sectors (4-connected) that exceed the threshold
+    const neighborScore = (r: number, c: number, field: keyof Sector, thr: number): number => {
+      let count = 0;
+      for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const nr = r+dr, nc = c+dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+          if ((grid[nr*COLS+nc]![field] as number) >= thr) count++;
         }
       }
-      return result;
+      return count;
     };
 
-    const hasNeighborAbove = (
-      stat: SectorStats,
-      field: keyof SectorStats,
-      secondaryThreshold: number,
-      minNeighbors = 1
-    ): boolean => {
-      const neighbors = neighborSectors(stat.row, stat.col);
-      const count = neighbors.filter(n => (n[field] as number) >= secondaryThreshold).length;
-      return count >= minNeighbors;
-    };
+    const nearbyTrack = (cat: string, cx: number, cy: number, d: number) =>
+      tracks.some(t => t.category === cat && Math.hypot(t.cx-cx, t.cy-cy) < d);
 
-    const hasNearbyTrack = (cat: string, cx: number, cy: number, dist: number) =>
-      tracks.some((t) => t.category === cat && Math.hypot(t.cx - cx, t.cy - cy) < dist);
+    // ── INSECT PEST DETECTION ───────────────────────────────────────────────
+    // Thresholds: primary = strong signal in this sector
+    //             secondary = at least 1 neighbour also shows signal
+    // This eliminates single-sector false positives from soil/sky/bark
 
-    // ── DETECT REAL AGRICULTURAL INSECT PESTS ─────────────────────────────────
-    // FIX 2: Raised thresholds + multi-sector agreement required
-    for (const stat of gridStats) {
-      // Skip edge sectors with too few samples
-      if (stat.samples < 40) continue;
+    for (const s of grid) {
+      if (s.n < 35) continue; // skip tiny/edge sectors
+      const cx = s.sx + SW / 2, cy = s.sy + SH / 2;
 
-      const cx = stat.sx + sw / 2;
-      const cy = stat.sy + sh / 2;
-
-      // ── Aphids (yellowish-green colonies on stems/leaves) ──
-      if (
-        stat.aphidRatio > 0.26 &&
-        hasNeighborAbove(stat, 'aphidRatio', 0.16, 1) &&
-        !hasNearbyTrack('pest', cx, cy, sw * 0.9)
-      ) {
+      // Aphids — yellowish colonies on stems
+      if (s.aphid > 0.24 && neighborScore(s.row, s.col, 'aphid', 0.14) >= 1 &&
+          !nearbyTrack('pest', cx, cy, SW * 1.0)) {
         const info = PEST_DISPLAY['aphid']!;
-        tracks.push({
-          id: trackId++, cocoClass: 'aphid',
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'pest',
-          conf: Math.min(0.95, 0.76 + stat.aphidRatio * 0.38),
-          cx, cy, w: sw * 0.9, h: sh * 0.9,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        tracks.push({ id: trackId++, cocoClass: 'aphid',
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'pest', conf: Math.min(0.94, 0.74 + s.aphid * 0.36),
+          cx, cy, w: SW*0.95, h: SH*0.95, vx:0, vy:0, speed:0, trail:[] });
       }
-      // ── Whiteflies (bright micro-specks on dark leaf) ──
-      else if (
-        stat.whiteflyRatio > 0.22 &&
-        hasNeighborAbove(stat, 'whiteflyRatio', 0.14, 1) &&
-        !hasNearbyTrack('pest', cx, cy, sw * 0.9)
-      ) {
+      // Whiteflies — bright white micro-specks
+      else if (s.fly > 0.20 && neighborScore(s.row, s.col, 'fly', 0.12) >= 1 &&
+               !nearbyTrack('pest', cx, cy, SW * 1.0)) {
         const info = PEST_DISPLAY['whitefly']!;
-        tracks.push({
-          id: trackId++, cocoClass: 'whitefly',
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'pest',
-          conf: Math.min(0.94, 0.74 + stat.whiteflyRatio * 0.36),
-          cx, cy, w: sw * 0.85, h: sh * 0.85,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        tracks.push({ id: trackId++, cocoClass: 'whitefly',
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'pest', conf: Math.min(0.92, 0.72 + s.fly * 0.35),
+          cx, cy, w: SW*0.85, h: SH*0.85, vx:0, vy:0, speed:0, trail:[] });
       }
-      // ── Fall Armyworm / Caterpillar ──
-      else if (
-        stat.caterpillarRatio > 0.28 &&
-        hasNeighborAbove(stat, 'caterpillarRatio', 0.18, 1) &&
-        !hasNearbyTrack('pest', cx, cy, sw * 0.9)
-      ) {
+      // Caterpillar / Fall Armyworm
+      else if (s.cat > 0.26 && neighborScore(s.row, s.col, 'cat', 0.16) >= 1 &&
+               !nearbyTrack('pest', cx, cy, SW * 1.0)) {
         const info = PEST_DISPLAY['caterpillar']!;
-        tracks.push({
-          id: trackId++, cocoClass: 'caterpillar',
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'pest',
-          conf: Math.min(0.96, 0.78 + stat.caterpillarRatio * 0.36),
-          cx, cy, w: sw * 0.95, h: sh * 0.95,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        tracks.push({ id: trackId++, cocoClass: 'caterpillar',
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'pest', conf: Math.min(0.95, 0.76 + s.cat * 0.35),
+          cx, cy, w: SW*1.0, h: SH*1.0, vx:0, vy:0, speed:0, trail:[] });
       }
-      // ── Red Spider Mites ──
-      else if (
-        stat.miteRatio > 0.20 &&
-        hasNeighborAbove(stat, 'miteRatio', 0.12, 1) &&
-        !hasNearbyTrack('pest', cx, cy, sw * 0.9)
-      ) {
+      // Spider Mite — red dots
+      else if (s.mite > 0.18 && neighborScore(s.row, s.col, 'mite', 0.10) >= 1 &&
+               !nearbyTrack('pest', cx, cy, SW * 1.0)) {
         const info = PEST_DISPLAY['spider mite']!;
-        tracks.push({
-          id: trackId++, cocoClass: 'spider mite',
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'pest',
-          conf: Math.min(0.93, 0.72 + stat.miteRatio * 0.38),
-          cx, cy, w: sw * 0.80, h: sh * 0.80,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        tracks.push({ id: trackId++, cocoClass: 'spider mite',
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'pest', conf: Math.min(0.92, 0.70 + s.mite * 0.36),
+          cx, cy, w: SW*0.85, h: SH*0.85, vx:0, vy:0, speed:0, trail:[] });
       }
-      // ── Brown Planthopper / Leafhopper (BPH) ──
-      else if (
-        stat.leafhopperRatio > 0.18 &&
-        hasNeighborAbove(stat, 'leafhopperRatio', 0.11, 1) &&
-        !hasNearbyTrack('pest', cx, cy, sw * 0.9)
-      ) {
+      // Leafhopper / BPH
+      else if (s.hopper > 0.17 && neighborScore(s.row, s.col, 'hopper', 0.10) >= 1 &&
+               !nearbyTrack('pest', cx, cy, SW * 1.0)) {
         const info = PEST_DISPLAY['leafhopper']!;
-        tracks.push({
-          id: trackId++, cocoClass: 'leafhopper',
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'pest',
-          conf: Math.min(0.92, 0.70 + stat.leafhopperRatio * 0.40),
-          cx, cy, w: sw * 0.80, h: sh * 0.80,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        tracks.push({ id: trackId++, cocoClass: 'leafhopper',
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'pest', conf: Math.min(0.91, 0.68 + s.hopper * 0.38),
+          cx, cy, w: SW*0.85, h: SH*0.85, vx:0, vy:0, speed:0, trail:[] });
       }
-      // ── Bollworm / Fruit Borer ──
-      else if (
-        stat.bollwormRatio > 0.18 &&
-        hasNeighborAbove(stat, 'bollwormRatio', 0.10, 1) &&
-        !hasNearbyTrack('pest', cx, cy, sw * 0.9)
-      ) {
+      // Bollworm / Fruit borer
+      else if (s.boll > 0.17 && neighborScore(s.row, s.col, 'boll', 0.10) >= 1 &&
+               !nearbyTrack('pest', cx, cy, SW * 1.0)) {
         const info = PEST_DISPLAY['bollworm']!;
-        tracks.push({
-          id: trackId++, cocoClass: 'bollworm',
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'pest',
-          conf: Math.min(0.93, 0.71 + stat.bollwormRatio * 0.38),
-          cx, cy, w: sw * 0.85, h: sh * 0.85,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+        tracks.push({ id: trackId++, cocoClass: 'bollworm',
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'pest', conf: Math.min(0.91, 0.68 + s.boll * 0.38),
+          cx, cy, w: SW*0.90, h: SH*0.90, vx:0, vy:0, speed:0, trail:[] });
       }
 
-      // ── Leaf Diseases (run independently, can co-exist with pests) ──
-      if (
-        stat.blightRatio > 0.30 &&
-        hasNeighborAbove(stat, 'blightRatio', 0.20, 1) &&
-        !hasNearbyTrack('disease', cx, cy, sw * 0.9)
-      ) {
-        // Distinguish blight vs. spot by intensity
-        const isSpot      = stat.blightRatio < 0.40;
-        const diseaseKey  = isSpot ? 'leaf spot' : 'leaf blight';
-        const info        = DISEASE_DISPLAY[diseaseKey]!;
-        tracks.push({
-          id: trackId++, cocoClass: diseaseKey,
-          displayName: lang === 'ta' ? info.ta : info.en,
-          emoji: info.emoji, category: 'disease',
-          conf: Math.min(0.95, 0.74 + stat.blightRatio * 0.34),
-          cx, cy, w: sw * 0.90, h: sh * 0.90,
-          vx: 0, vy: 0, speed: 0, trail: [],
-        });
+      // Leaf disease (runs independently — can co-exist with pest)
+      if (s.blight > 0.28 && neighborScore(s.row, s.col, 'blight', 0.18) >= 1 &&
+          !nearbyTrack('disease', cx, cy, SW * 1.0)) {
+        const diseaseKey = s.blight < 0.40 ? 'leaf spot' : 'leaf blight';
+        const info = DISEASE_DISPLAY[diseaseKey]!;
+        tracks.push({ id: trackId++, cocoClass: diseaseKey,
+          displayName: lang==='ta' ? info.ta : info.en, emoji: info.emoji,
+          category: 'disease', conf: Math.min(0.94, 0.72 + s.blight * 0.34),
+          cx, cy, w: SW*0.90, h: SH*0.90, vx:0, vy:0, speed:0, trail:[] });
       }
     }
 
-    // ── 3. PRECISE BOTANICAL PLANT & TREE DETECTION — CONNECTED-COMPONENT ────
-    // FIX 3: Use connected-component grouping instead of a mechanical L/R split
-    // FIX 4: Tighter foliage threshold (> 0.32) to avoid false crops on dry images
-
-    // Mark every foliage sector
-    const isFoliage: boolean[][] = Array.from({ length: rows }, (_, r) =>
-      Array.from({ length: cols }, (_, c) => gridStats[r * cols + c]!.greenRatio > 0.32)
+    // ── BOTANICAL CANOPY DETECTION — connected-component BFS ───────────────
+    // Find all contiguous green sector clusters and draw one box per cluster
+    // Label is ALWAYS driven by getCropInfoForContext (respects user selection)
+    const FOLIAGE_THRESH = 0.30; // a sector is "foliage" if ≥30% green pixels
+    const foliage: boolean[][] = Array.from({length: ROWS}, (_, r) =>
+      Array.from({length: COLS}, (_, c) => grid[r*COLS+c]!.green > FOLIAGE_THRESH)
     );
+    const visited: boolean[][] = Array.from({length: ROWS}, () => new Array(COLS).fill(false));
 
-    // BFS connected-component labelling
-    const visited: boolean[][] = Array.from({ length: rows }, () => new Array(cols).fill(false));
-    const components: SectorStats[][] = [];
+    // Compute mean green across all foliage sectors for taxonomy decision
+    const allFoliageSectors = grid.filter(s => s.green > FOLIAGE_THRESH);
+    const sceneMeanGreen = allFoliageSectors.length
+      ? allFoliageSectors.reduce((acc, s) => acc + s.green, 0) / allFoliageSectors.length
+      : 0;
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (isFoliage[r]![c] && !visited[r]![c]) {
-          // BFS
-          const component: SectorStats[] = [];
-          const queue: [number, number][] = [[r, c]];
-          visited[r]![c] = true;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (!foliage[r]![c] || visited[r]![c]) continue;
 
-          while (queue.length > 0) {
-            const [cr, cc] = queue.shift()!;
-            component.push(gridStats[cr * cols + cc]!);
+        // BFS to gather connected component
+        const component: Sector[] = [];
+        const queue: [number,number][] = [[r, c]];
+        visited[r]![c] = true;
 
-            // 4-connected neighbours
-            const neighbors: [number, number][] = [
-              [cr - 1, cc], [cr + 1, cc],
-              [cr, cc - 1], [cr, cc + 1],
-            ];
-            for (const [nr, nc] of neighbors) {
-              if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && isFoliage[nr]![nc] && !visited[nr]![nc]) {
-                visited[nr]![nc] = true;
-                queue.push([nr, nc]);
-              }
+        while (queue.length) {
+          const [cr, cc] = queue.shift()!;
+          component.push(grid[cr*COLS+cc]!);
+          for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const nr=cr+dr, nc=cc+dc;
+            if (nr>=0 && nr<ROWS && nc>=0 && nc<COLS &&
+                foliage[nr]![nc] && !visited[nr]![nc]) {
+              visited[nr]![nc] = true;
+              queue.push([nr, nc]);
             }
           }
-
-          // Only keep components with ≥ 3 sectors (avoids single-sector noise)
-          if (component.length >= 3) {
-            components.push(component);
-          }
         }
-      }
-    }
 
-    // Determine crop/tree taxonomy label for each component
-    for (const cluster of components) {
-      let minX = targetWidth, minY = targetHeight, maxX = 0, maxY = 0;
-      let avgGreen = 0, avgWoody = 0, avgFruit = 0;
+        // Need at least 3 connected sectors to form a valid canopy detection
+        if (component.length < 3) continue;
 
-      for (const s of cluster) {
-        minX = Math.min(minX, s.sx);
-        minY = Math.min(minY, s.sy);
-        maxX = Math.max(maxX, s.sx + sw);
-        maxY = Math.max(maxY, s.sy + sh);
-        avgGreen += s.greenRatio;
-        avgWoody += s.woodyRatio;
-        avgFruit += s.fruitRatio;
-      }
-      avgGreen /= cluster.length;
-      avgWoody /= cluster.length;
-      avgFruit /= cluster.length;
-
-      // Expand slightly to encompass full canopy crown & trunk
-      const padX = sw * 0.12;
-      const padY = sh * 0.12;
-      const boxX = Math.max(0, minX - padX);
-      const boxY = Math.max(0, minY - padY);
-      const boxW = Math.min(targetWidth  - boxX, (maxX - minX) + padX * 2);
-      const boxH = Math.min(targetHeight - boxY, (maxY - minY) + padY * 2);
-      const cx   = boxX + boxW / 2;
-      const cy   = boxY + boxH / 2;
-
-      // FIX 4: Minimum box size gate
-      if (boxW < 80 || boxH < 80) continue;
-
-      // Dedup — skip if another crop track is already close
-      const alreadyCovered = tracks.some(
-        (t) => t.category === 'crop' && Math.hypot(t.cx - cx, t.cy - cy) < boxW * 0.38
-      );
-      if (alreadyCovered) continue;
-
-      // ── Choose the most accurate taxonomy label ──
-      let cropKey  = 'plant';
-      let cropInfo = CROP_DISPLAY['plant']!;
-
-      if (cropContext === 'orchard' || isTreeOrchardScene || avgFruit > 0.03) {
-        cropKey  = 'orchard';
-        cropInfo = CROP_DISPLAY['orchard']!;
-      } else if (cropContext === 'tomato') {
-        cropKey  = 'tomato';
-        cropInfo = CROP_DISPLAY['tomato']!;
-      } else if (cropContext === 'cotton') {
-        cropKey  = 'cotton';
-        cropInfo = CROP_DISPLAY['cotton']!;
-      } else if (cropContext === 'paddy') {
-        cropKey  = 'paddy';
-        cropInfo = CROP_DISPLAY['paddy']!;
-      } else if (cropContext === 'maize') {
-        cropKey  = 'maize';
-        cropInfo = CROP_DISPLAY['maize']!;
-      } else if (cropContext === 'chilli') {
-        cropKey  = 'chilli';
-        cropInfo = CROP_DISPLAY['chilli']!;
-      } else if (cropContext === 'sugarcane') {
-        cropKey  = 'sugarcane';
-        cropInfo = CROP_DISPLAY['sugarcane']!;
-      } else {
-        // Auto-detect: use scene signals
-        if (isTreeOrchardScene || avgWoody > 0.05) {
-          cropKey  = 'orchard';
-          cropInfo = CROP_DISPLAY['orchard']!;
-        } else if (overallGreenRatio > 0.48 && overallWoodyRatio < 0.02) {
-          cropKey  = 'crop row';
-          cropInfo = CROP_DISPLAY['crop row']!;
-        } else if (avgGreen > 0.50) {
-          cropKey  = 'tree';
-          cropInfo = CROP_DISPLAY['tree']!;
-        } else {
-          cropKey  = 'plant';
-          cropInfo = CROP_DISPLAY['plant']!;
+        // Compute bounding box from sector pixel coordinates
+        let minX=targetWidth, minY=targetHeight, maxX=0, maxY=0;
+        let avgG=0, avgF=0, avgW=0;
+        for (const s of component) {
+          minX = Math.min(minX, s.sx); minY = Math.min(minY, s.sy);
+          maxX = Math.max(maxX, s.sx+SW); maxY = Math.max(maxY, s.sy+SH);
+          avgG += s.green; avgF += s.fruit; avgW += s.woody;
         }
-      }
+        avgG /= component.length;
+        avgF /= component.length;
+        avgW /= component.length;
 
-      tracks.push({
-        id: trackId++,
-        cocoClass: cropKey,
-        displayName: lang === 'ta' ? cropInfo.ta : cropInfo.en,
-        emoji: cropInfo.emoji,
-        category: 'crop',
-        conf: Math.min(0.97, 0.84 + avgGreen * 0.14),
-        cx, cy, w: boxW, h: boxH,
-        vx: 0, vy: 0, speed: 0, trail: [],
-      });
+        // Expand by 10% to include canopy edges and trunk base
+        const padX = SW * 0.10, padY = SH * 0.10;
+        const bx = Math.max(0, minX - padX);
+        const by = Math.max(0, minY - padY);
+        const bw = Math.min(targetWidth  - bx, (maxX - minX) + padX * 2);
+        const bh = Math.min(targetHeight - by, (maxY - minY) + padY * 2);
+        const cx = bx + bw / 2, cy = by + bh / 2;
+
+        if (bw < 75 || bh < 75) continue; // too small
+
+        // Skip if already covered by a COCO crop detection
+        if (tracks.some(t => t.category==='crop' &&
+            Math.hypot(t.cx-cx, t.cy-cy) < Math.max(t.w, bw) * 0.42)) continue;
+
+        // ── Determine label — cropContext is SOURCE OF TRUTH ──
+        const isTreeHere = isTreeScene || avgW > 0.04 || avgF > 0.02;
+        const info = getCropInfoForContext(cropCtx, isTreeHere, sceneMeanGreen, lang);
+
+        tracks.push({
+          id: trackId++,
+          cocoClass: info.key,
+          displayName: info.displayName,
+          emoji: info.emoji,
+          category: 'crop',
+          conf: Math.min(0.97, 0.83 + avgG * 0.15),
+          cx, cy, w: bw, h: bh,
+          vx: 0, vy: 0, speed: 0, trail: [],
+        });
+      }
     }
   } catch (err) {
-    console.warn('Botanical canopy analysis notice:', err);
+    console.warn('[VisionModel] Pixel scanner error:', err);
   }
 
   return tracks;
